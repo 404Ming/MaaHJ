@@ -1,0 +1,10 @@
+{
+    "task": [
+        {
+            "name": "Guide",
+            "label": "使用说明",
+            "entry": "Guide_Start",
+            "description": "分辨率要求720x1280 DPI320"
+        }
+    ]
+}

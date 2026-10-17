@@ -1,0 +1,48 @@
+{
+    "TestAnchor_Probe": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    0,
+                    10,
+                    10
+                ],
+                "expected": [
+                    "zzz_no_such_text_zzz"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_AtHub"
+        ]
+    },
+    "TestAnchor_ProbeSameFile": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    0,
+                    10,
+                    10
+                ],
+                "expected": [
+                    "zzz_no_such_text_zzz"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "TestAnchor_Probe"
+        ]
+    }
+}

@@ -1,0 +1,128 @@
+{
+    "task": [
+        {
+            "name": "Daily",
+            "label": "日常任务",
+            "entry": "Daily_Start",
+            "doc": [
+                "自动完成每日任务：领取所有奖励，并自动完成能自动做的任务。"
+            ]
+        },
+        {
+            "name": "Weekly",
+            "label": "周常任务",
+            "entry": "Weekly_Start",
+            "option": [
+                "祈愿池"
+            ],
+            "doc": [
+                "自动完成周常任务：领取所有奖励，并自动完成能自动做的任务（元素试炼副本、史莱姆宝库、十连抽卡）。"
+            ]
+        },
+        {
+            "name": "Shop",
+            "label": "商店购买",
+            "entry": "Shop_Start",
+            "option": [
+                "折扣礼包商品",
+                "公会商店商品",
+                "征伐印记商店商品"
+            ],
+            "doc": [
+                "按你勾选的商品清单，自动到商店逐件买到当日/当周限购上限；缺货或不在售的会自动跳过。"
+            ]
+        },
+        {
+            "name": "Knights",
+            "label": "骑士团",
+            "entry": "Knights_Start",
+            "option": [
+                "每日捐献",
+                "公会挖宝"
+            ],
+            "doc": [
+                "自动完成骑士团每日捐献和公会挖宝，两个开关可分别开启。"
+            ]
+        },
+        {
+            "name": "AncientTower",
+            "label": "古代之塔奖励领取",
+            "entry": "AncientTower_Start",
+            "doc": [
+                "自动领取古代之塔的挂机奖励：用光剩余收获次数，并收取挂机收益。"
+            ]
+        },
+        {
+            "name": "Mail",
+            "label": "邮件领取",
+            "entry": "Mail_Start",
+            "doc": [
+                "自动点击「领取全部」，收完所有邮件。"
+            ]
+        },
+        {
+            "name": "MachineGodDescent",
+            "label": "机神降临",
+            "entry": "MachineGodDescent_Start",
+            "option": [
+                "自动探索领取",
+                "挑战机神降临",
+                "机神降临挑战次数",
+                "挑战元素自律机械",
+                "自律机械挑战次数"
+            ],
+            "doc": [
+                "进入机神降临活动，自动探索并领取奖励；按设置的次数自动挑战机神降临（多人房间战）和元素自律机械。"
+            ]
+        },
+        {
+            "name": "Event",
+            "label": "活动",
+            "entry": "Event_Start"
+        },
+        {
+            "name": "DungeonChallenge",
+            "label": "副本挑战",
+            "entry": "DungeonChallenge_Start"
+        },
+        {
+            "name": "GameplayChallenge",
+            "label": "玩法挑战",
+            "entry": "GameplayChallenge_Start",
+            "option": [
+                "挑战副本",
+                "挑战难度",
+                "挑战次数"
+            ],
+            "doc": [
+                "从「玩法 → 终末之地」进入，按所选副本、难度、次数自动挑战；体力不足时按设置自动补体力。"
+            ]
+        },
+        {
+            "name": "SkipTurnOnly",
+            "label": "仅跳过回合",
+            "entry": "SkipTurnOnly_Start",
+            "doc": [
+                "只在战斗中自动点「跳过回合」。注意：本任务不会自动结束，需要时请手动停止。"
+            ]
+        },
+        {
+            "name": "RefillStaminaOnly",
+            "label": "仅补充体力",
+            "entry": "RefillStaminaOnly_Start",
+            "doc": [
+                "只在「补充体力」弹窗出现时，按设置自动用体力药补体力。注意：本任务不会自动结束，需要时请手动停止。"
+            ]
+        },
+        {
+            "name": "LaunchGame",
+            "label": "启动游戏",
+            "entry": "LaunchGame_Start"
+        },
+        {
+            "name": "BackToMainHub",
+            "label": "返回主页",
+            "entry": "BackToMainHub_Start"
+        }
+    ]
+}

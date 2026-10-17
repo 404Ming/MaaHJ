@@ -1,0 +1,722 @@
+{
+    "Knights_Start": {
+        // 骑士团任务入口，按「每日捐献」「公会挖宝」两个开关依次执行：
+        //   每日捐献：主页 → 骑士团 → 成员 → 捐献 → 左侧「金币捐献」×10 → 关弹窗 → 回主页
+        //   公会挖宝：主页 → 骑士团 → 公会挖宝 → 挑战 → 开始战斗 → 战斗 → 挖宝页 → 回主页
+        // 两个 Gate 都用 enabled 当开关：关掉 = 该节点识别必然失败 = 被跳过，
+        // 引擎继续试本列表后面的候选，于是自然落到下一段（不需要写额外的分支）。
+        // 末位 Knights_Done 兜底：两个开关都关掉时，不做任何点击直接收尾。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 20000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Knights_DailyDonateGate",
+            "Knights_TreasureGate",
+            "Knights_Done"
+        ]
+    },
+    "Knights_Done": {
+        // 收尾态（无 next → 整条任务链结束）：两个开关都关掉时走到这里，或者挖宝段回主页后结束。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Knights_DailyDonateGate": {
+        // 「每日捐献」开关载体：interface.json 的 switch 选项「每日捐献」覆写本节点 enabled。
+        // 关掉时本节点被跳过，Knights_Start 直接试「公会挖宝」；
+        // 打开时本节点无条件命中，控制权交给捐献状态机（plain next，执行完不再回本列表）。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_DonateFlow"
+        ]
+    },
+    "Knights_DonateFlow": {
+        // 每日捐献状态机（监督节点）。候选顺序 = 「界面状态越靠后越优先」：
+        //   弹窗里的「金币捐献」→ 关弹窗 → 成员页「捐献」→ 大厅「成员」→ 主页「骑士团」
+        // 注意「骑士团」底部导航在大厅里同样可见（大厅底栏也是 骑士团 高亮），
+        // 所以它必须排在「成员」之后，否则会在大厅里反复点导航、永远进不到成员页。
+        // 每个步骤执行完都用 plain next 回到本节点重新判定；没有任何 jumpback 帧残留，
+        // 后面交接「公会挖宝」段时才能干净收尾。
+        // timeout 当「卡死窗口」：这么久都没匹配到任何正常状态（未知弹窗/异常画面），
+        // on_error 先回主页，再交给挖宝段。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 25000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Knights_Donate_Once",
+            "Knights_Donate_Close",
+            "Knights_Donate_Open",
+            "Knights_Donate_Member",
+            "Knights_Donate_Enter"
+        ],
+        "on_error": [
+            "Knights_Donate_Home"
+        ]
+    },
+    "Knights_Donate_Once": {
+        "max_hit": 10,
+        // 弹窗左下「金币捐献」按钮：实机实测两个「捐献」文字分别落在
+        // box (254,898,66,40)（左，金币）与 box (516,899,65,40)（右，水晶），
+        // 故 ROI 只覆盖左半、且在 x=420 处截断，绝不误点到消耗水晶的那一侧。
+        // max_hit 10 = 每天捐 10 次；次数用完后本节点不再命中，交给 Donate_Close 关弹窗。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    850,
+                    240,
+                    120
+                ],
+                "expected": [
+                    "捐献"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "Knights_DonateFlow"
+        ]
+    },
+    "Knights_Donate_Close": {
+        // 关掉「公会贡献」弹窗：实测没有关闭按钮，也不是点空白关闭，只有左下角返回按钮有效，
+        // 且**点击点比看上去更靠下**（实测 y=1210 命中、y=1195 无效），故用固定 target 而不是识别框。
+        // 实机复测：target [44,1200,36,36]（中心 (62,1218)）稳定命中；原先的 [24,1180,56,52]
+        // 因随机点可能落在按钮上沿之外而点空，已按实测热区收紧。
+        // 关掉后回主页，再由主页锚点把控制权交给挖宝段。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    200,
+                    220,
+                    60
+                ],
+                "expected": [
+                    "公会贡献"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    44,
+                    1200,
+                    36,
+                    36
+                ]
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Knights_Donate_Home"
+        ]
+    },
+    "Knights_Donate_Open": {
+        // 成员页右上角「捐献」（实测带红点）。点击打开「公会贡献」弹窗。
+        // 大厅右上的「公会挖宝」面板也落在本 ROI 内，但文案不含「捐献」，不会误判。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    200,
+                    220,
+                    100
+                ],
+                "expected": [
+                    "捐献"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000,
+        "next": [
+            "Knights_DonateFlow"
+        ]
+    },
+    "Knights_Donate_Member": {
+        // 骑士团大厅左侧竖排按钮：成员 / 商店 / 悬赏 / 增益（实测 成员 约在 720x1280 的 (47,734)）。
+        // ROI 只框住这一列：既避开画面里的成员名字标签，也不会碰到底部导航的「骑士团」。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    640,
+                    180,
+                    220
+                ],
+                "expected": [
+                    "成员"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000,
+        "next": [
+            "Knights_DonateFlow"
+        ]
+    },
+    "Knights_Donate_Enter": {
+        // 主页底部导航「骑士团」（实测带红点，表示有可做的东西）。进去后是骑士团大厅。
+        // 实机实测：主页与大厅里该导航项都在 box≈(500,1223,74,28)，故 ROI 从 x=480 起留足边距。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    1180,
+                    240,
+                    100
+                ],
+                "expected": [
+                    "骑士团"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": [
+            "Knights_DonateFlow"
+        ]
+    },
+    "Knights_Donate_Home": {
+        // 回主页（捐献段用）：先把角色退回主页，再把控制权交给「公会挖宝」段。
+        // 这里不直接复用 Exception_BackToHub，因为它是无条件节点、且链尾 Exception_AtHub 无 next，
+        // 会把整条任务链结束掉，交接不到挖宝段。
+        //   命中主页锚点 → AtHub → next 直接进 TreasureGate
+        //   还没到主页 → 点左下角返回退一级，再回来重新判定（有界：max_hit 8）
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "Knights_Donate_AtHub",
+            "[JumpBack]Knights_LeaveHall",
+            "[JumpBack]Knights_Donate_Back"
+        ]
+    },
+    "Knights_Donate_AtHub": {
+        // 主页锚点：底部导航第一个按钮「惑星之间」。命中即「已经回到主页」→ 交接挖宝段。
+        // ⚠️ 末位必须挂 Knights_Done 兜底：enabled=false 的节点会被判为「不存在」，
+        // 若 next 里只有被关掉的 TreasureGate，引擎会报
+        // "no valid/enabled node in next" 并让整个任务判失败（实测只开「每日捐献」时必现）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureGate",
+            "Knights_Done"
+        ]
+    },
+    "Knights_LeaveHall": {
+        // 骑士团大厅 → 主页：大厅底部第一个导航项是「返回世界」（实测两行文字 box 各为
+        // (50,1194,57,31) / (73,1226,55,30)），点它回到主页。
+        // 不能用 Knights_Donate_Back 的固定点：实测那个点在成员页/弹窗上有效，
+        // 但在大厅里会落在按钮上沿之外（点空），所以大厅这一级改为按文字点。
+        // 本节点无 next，只作为 [JumpBack] 步骤供各个「回主页」监督节点复用
+        // （Knights_Donate_Home / Knights_GiveUpHome），点完自动回到调用方重新判定。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1185,
+                    240,
+                    95
+                ],
+                "expected": [
+                    "返回|世界"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000
+    },
+    "Knights_Donate_Back": {
+        "max_hit": 8,
+        // 退一级：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        // 骑士团各页是纯图标返回键，用模板匹配比写死坐标更稳。
+        // max_hit 限制退层级数，退不回主页就交给调用方的 on_error 兜底，绝不无限点。
+        // 本节点无 next，只作为 [JumpBack] 步骤供各个「回主页」监督节点复用。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000
+    },
+    "Knights_HomeThenEnd": {
+        // 挖宝段「回主页并收尾结束」（不重启游戏）：正常打完和卡住兜底都走这里。
+        //   命中主页锚点 AtHubEnd → 交给 Knights_Done 收尾结束
+        //   还没到主页 → 大厅点「返回世界」/ 其它页点左下角返回，退一级再回来判定
+        // 刻意不用 Exception_BackToHub：它在退不回主页时会落到 Exception_Restart 强杀重启游戏。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "Knights_AtHubEnd",
+            "[JumpBack]Knights_LeaveHall",
+            "[JumpBack]Knights_Donate_Back"
+        ]
+    },
+    "Knights_AtHubEnd": {
+        // 主页锚点（收尾版）：命中即「已经回到主页」→ 任务在此正常结束。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_Done"
+        ]
+    },
+    "Knights_Treasure_GiveUp": {
+        "max_hit": 1,
+        // ⚠️ 挖宝段「卡住」时的兜底，刻意**不**走 Exception_Unknown → Exception_BackToHub → Exception_Restart：
+        //    那条链在回主页失败时会「停应用 + 重新拉起」，把游戏整个重启掉（实测：回合数用尽后
+        //    就走到这里，游戏被强杀重启），而且重启后没有任何节点会重新开始任务，任务直接结束。
+        // 现在的行为：尽力退回主页 → 收尾结束，不杀进程；max_hit 1 保证最多收尾一次。
+        // 想「重启游戏后自动从头再来」的话，把 next 换成 ["Exception_Restart", "Knights_Start"] 即可
+        //（Exception_Restart 复用 LaunchGame 链路，跑完把控制权交回本列表，继续从 Knights_Start 重跑）。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_HomeThenEnd"
+        ]
+    },
+    "Knights_TreasureGate": {
+        // 「公会挖宝」开关载体：interface.json 的 switch 选项「公会挖宝」覆写本节点 enabled。
+        // 注：实测「终极宝藏」的挑战只在周六 19:00-22:00 开放，普通挖宝挑战不限时、挑战次数为 ∞。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_TreasureFlow": {
+        // 公会挖宝状态机（监督节点）。候选顺序 =「界面状态越靠后越优先」：
+        //   遮屏面板 → 挖宝页「挑战」→ 编队「开始战斗」→ 洞穴口「挖宝」→ 大厅「公会挖宝」→ 主页「骑士团」→ 退一级
+        // 大厅里两步是分开的：右上角「公会挖宝」面板只负责让角色自动走到洞穴口，
+        // 走到之后洞穴口才会出现圆「挖宝」按钮，点它才进挖宝页；
+        // 所以「挖宝」必须排在「公会挖宝」之前，否则会停在「已到洞穴口」反复点右上角面板。
+        // 同理，底部导航「骑士团」在大厅里同样可见，必须排在「公会挖宝」之后，
+        // 否则会在大厅里反复点导航、永远点不到挖宝。
+        // 末位 Knights_Treasure_Back 是通用的「退一级再判断」：只有落在不认识的中转页
+        // （例如捐献段如果没回主页而停在成员页）才会用到，有界（max_hit 6）。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 30000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Knights_Treasure_ClosePanel",
+            "Knights_Treasure_Challenge",
+            "Knights_Treasure_Start",
+            "Knights_Treasure_EnterCave",
+            "Knights_Treasure_Open",
+            "Knights_Treasure_Enter",
+            "Knights_Treasure_Back"
+        ],
+        "on_error": [
+            "Knights_Treasure_GiveUp"
+        ]
+    },
+    "Knights_Treasure_ClosePanel": {
+        // 「终极宝藏 已发现」遮屏面板：文案「点击空白处关闭」，点空白关掉。
+        // 不关掉就看不到底部的「挑战」按钮（面板盖住了它），所以必须排在「挑战」之前。
+        // 实机实测：点进挖宝页后该面板会弹出一次（文案 box (271,1140,175,29)），
+        // ROI 下沿按实测放宽到 1200，避免只有 10px 余量被裁掉。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    150,
+                    1080,
+                    420,
+                    120
+                ],
+                "expected": [
+                    "点击空白处关闭"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    330,
+                    1185,
+                    80,
+                    60
+                ]
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_Treasure_Challenge": {
+        // 挖宝页底部大红「挑战」按钮（实测文案 box 约在 720x1280 的 y≈1162 一条带上）。
+        // 点击进入编队面板。挖宝挑战「剩余挑战次数：∞」，点下去不消耗次数，代价只是打一局。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    1090,
+                    240,
+                    110
+                ],
+                "expected": [
+                    "挑战"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_Treasure_Start": {
+        // 编队面板底部「开始战斗」。点下去才真正进战斗，由通用战斗模块驱动。
+        // 挖宝不耗体力，所以战斗链里不挂 SettleRefillGate。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    1060,
+                    220,
+                    100
+                ],
+                "expected": [
+                    "开始战斗"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 4000,
+        "timeout": 2500,
+        "next": [
+            "Knights_Treasure_Battle"
+        ]
+    },
+    "Knights_Treasure_EnterCave": {
+        "max_hit": 3,
+        // 洞穴口的圆形「挖宝」按钮（实机实测 OCR box (566,792,47,30)，就在「水晶」标签下方）。
+        // 这一步是必须的：点右上角「公会挖宝」面板只会让角色自动走到洞穴口，
+        // 走到之后要在洞穴口再点这个「挖宝」才真正进入公会挖宝页。
+        // 漏掉它就会停在「已到洞穴口」的状态里反复点右上角面板（实测必现象）。
+        // ROI 只框按钮一带：右上角「公会挖宝」面板在 y≈213-295、挖宝页标题在 y≈63-88，
+        // 都不会落进来（预期文案用宽松正则，兼容 OCR 只认出其中一个字的情况）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    500,
+                    740,
+                    220,
+                    130
+                ],
+                "expected": [
+                    "挖宝"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_Treasure_Open": {
+        "max_hit": 2,
+        // 骑士团大厅右上角「公会挖宝」面板（实测 OCR box (568,215,135,33)，下面还有一行
+        // 「公会挖宝剩余时间 hh:mm:ss」）。点它只触发角色**自动走到洞穴口**，不会直接进挖宝页，
+        // 走到之后由 Knights_Treasure_EnterCave 点洞穴口的圆「挖宝」按钮。
+        // max_hit 2：走到洞穴口之后本节点还会命中（面板仍在画面上），限制次数避免反复点它。
+        // ROI 收得很紧：既避开大厅里其它文字，也避开挖宝页顶部同名的标题与说明文案。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    560,
+                    215,
+                    160,
+                    80
+                ],
+                "expected": [
+                    "公会挖宝"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3500,
+        "timeout": 5000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_Treasure_Enter": {
+        // 主页底部导航「骑士团」→ 骑士团大厅（挖宝段的入口，与捐献段的同名节点是同一识别、不同去向）。
+        // ROI 与 Knights_Donate_Enter 一致：实机实测该导航项 box≈(500,1223,74,28)。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    1180,
+                    240,
+                    100
+                ],
+                "expected": [
+                    "骑士团"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_Treasure_Back": {
+        "max_hit": 6,
+        // 退一级（通用兜底）：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回），
+        // 退完回状态机重新判断。
+        // 只在「落在不认识的中转页」时命中——正常路径上 挑战/开始战斗/公会挖宝/骑士团 会先命中。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000,
+        "next": [
+            "Knights_TreasureFlow"
+        ]
+    },
+    "Knights_Treasure_Battle": {
+        // 挖宝战斗监督节点：复用副本挑战那套通用战斗驱动节点（同资源包内可跨文件引用）：
+        //   Treasure_Turn 点「跳过回合」推进回合（骑士团专用，见下）
+        //   ResultConfirm 点结算「确认」（结算页有自动再战倒计时，必须抢在倒计时内点掉）
+        //   FriendCancel  关掉战斗后弹出的好友申请
+        //   SettleWait    结算动画有界等待（max_hit 12）
+        // 以上都是「无 next」的节点，用 [JumpBack] 引用 → 执行完自动回到本节点重新判定。
+        // 挖宝不耗体力，所以这里不挂 SettleRefillGate。
+        // on_error：战斗推不动时走本地的 Knights_Treasure_GiveUp（回主页收尾），
+        // 不再走 Exception_Unknown → Exception_BackToHub → Exception_Restart 那条会强杀重启游戏的链。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 30000,
+        "next": [
+            "[JumpBack]Knights_Treasure_Turn",
+            "[JumpBack]GameplayChallenge_ResultConfirm",
+            "[JumpBack]GameplayChallenge_FriendCancel",
+            "[JumpBack]Knights_Treasure_Claim",
+            "Knights_Treasure_Finish",
+            "[JumpBack]GameplayChallenge_SettleWait"
+        ],
+        "on_error": [
+            "Knights_Treasure_GiveUp"
+        ]
+    },
+    "Knights_Treasure_Turn": {
+        "max_hit": 300,
+        // 战斗回合按钮：只点「跳过回合」，绝不点「回合开始」。
+        // 实机日志证据（同一个按钮位置上会循环出现三种文案）：
+        //   「等待回合开始」(269,1092,188,38) / 「回合开始」(277,1091,165,38) / 「跳过回合」(280,1091,161,38)
+        // 旧配置写的是「回合开始|跳过回合」，而 expected 是部分匹配 → 「等待回合开始」也会被命中，
+        // 且「回合开始」本身也被点；现在只留「跳过回合」。
+        // 为什么骑士团要单独一份而不直接用 GameplayChallenge_BattleTurn：
+        // 共享节点 max_hit 只有 80，而这里的计数是**点击次数**（约 1.35s/次 → 80 次才 1 分多钟），
+        // 不等于游戏回合数；公会挖宝打的是公会 boss（Lv.200、共享血量），实测 80 次点击时战斗远未结束，
+        // 却被判「超时」→ 触发兜底。300 次 ≈ 6-7 分钟，够持久战，同时仍是有界上限。
+        // 日志方面：BattleTurnClick 已不再逐回合打印，战斗里只有「次数」相关输出。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    1075,
+                    200,
+                    75
+                ],
+                "expected": [
+                    "跳过回合"
+                ]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleTurnClick"
+            }
+        },
+        "post_delay": 1000,
+        "timeout": 1500
+    },
+    "Knights_Treasure_Claim": {
+        "max_hit": 3,
+        // 战斗结束后的领奖（尽力而为）：如果挖宝页/结算页确实出现了「领取」按钮就点掉。
+        // ⚠️ 该按钮文案与位置尚未实机观察到（本轮只观察到开战前与挖宝页，挖宝页里程碑宝箱
+        //    当时是已领取的对勾状态），接入前请按真实 UI 校正；识别不到也不会卡住流程——
+        //    下一条候选 Knights_Treasure_Finish 会直接收尾。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    200,
+                    950,
+                    320,
+                    200
+                ],
+                "expected": [
+                    "领取"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 2500
+    },
+    "Knights_Treasure_Finish": {
+        // 挖宝段终点判定：已经回到公会挖宝页（认「挖掘深度： xxxx米」这一行）。
+        // 认到就说明战斗与结算都结束了，交给本地的 Knights_HomeThenEnd 回主页收尾。
+        // ⚠️ 不能用 Exception_BackToHub：它退不回主页时会落到 Exception_Restart（停应用+重新拉起），
+        // 挖宝页→大厅这一级用固定点返回是点不动的（大厅要用「返回世界」文字点），
+        // 于是必然触发重启游戏的兜底。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    190,
+                    760,
+                    380,
+                    70
+                ],
+                "expected": [
+                    ".*挖掘深度.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_HomeThenEnd"
+        ]
+    }
+}

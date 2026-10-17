@@ -1,0 +1,8 @@
+{
+    "DungeonChallenge_Start": {
+        // TODO: 待实现副本挑战逻辑。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

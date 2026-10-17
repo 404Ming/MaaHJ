@@ -1,0 +1,626 @@
+{
+    // 「商店购买」的可选商品载体节点。本文件只放开关载体，不参与任何 next 链，也不执行动作：
+    // interface.json 里按商店分组的 checkbox，每个 case 只把自己那一件商品的载体节点置 enabled:true；
+    // 运行时由 ShopBuySelected（agent/custom/action/shop.py）用 context.get_node_data 读回勾选集合。
+    // 商品名 / 匹配前缀 / 分组都集中在 agent/custom/action/shop_items.py，这里只保留最小载体。
+    // 默认 false = 未勾选，即「什么都不买」。
+    "ShopPick_Gift_DailyWelfare": {
+        // 折扣礼包 · 每日福利
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Gift_AdventureWishValue": {
+        // 折扣礼包 · 冒险祈愿超值礼包（每日礼包页与每周礼包页各有一个不同 SKU，勾选后两页都会买）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Gift_WeeklyWelfare": {
+        // 折扣礼包 · 每周福利
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Guild_StarBook": {
+        // 公会商店 · 星间通信书（实测有 700 / 800 / 1000 三个不同价格的 SKU；
+        // 购买时不区分价格，视为同一种商品 —— 同名卡片都会命中，各按自己的限购买满）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Guild_AbyssEye": {
+        // 公会商店 · 深渊之瞳 3500（每日限购 3）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Guild_AbyssClaw": {
+        // 公会商店 · 深渊之爪 2500（每日限购 3）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Guild_ValkyrieFeather": {
+        // 公会商店 · 女武神之羽 2500（每日限购 3）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Guild_StarSpiritElixir": {
+        // 公会商店 · 星灵秘药 500（每日限购 5）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "ShopPick_Guild_DivineElixir": {
+        // 公会商店 · 神灵秘药 100（每日限购 10）
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+
+    // ---- 征伐印记商店「可兑换」（79 件，2026-10-16 实机逐屏枚举；显示全名见 shop_items.py）----
+    // 始源巨兽刻印金宝箱（2000，限购上限 3；卡片显示前缀：始源巨兽刻印金）
+    "ShopPick_Badge_001": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 神祝之翼刻印金宝箱（2000，限购上限 3；卡片显示前缀：神祝之翼刻印金）
+    "ShopPick_Badge_002": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 烛之造物刻印金箱（2000，限购上限 3；卡片显示前缀：烛之造物刻印金）
+    "ShopPick_Badge_003": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 串香蕉（2000，限购上限 4；卡片显示前缀：串香蕉）
+    "ShopPick_Badge_004": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 熊牙短匕（2000，限购上限 4；卡片显示前缀：熊牙短匕）
+    "ShopPick_Badge_005": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 缠绕重锤（2000，限购上限 4；卡片显示前缀：缠绕重锤）
+    "ShopPick_Badge_006": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 野猪王之剑（2000，限购上限 4；卡片显示前缀：野猪王之剑）
+    "ShopPick_Badge_007": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 深邃大洋之光（4000，限购上限 4；卡片显示前缀：深邃大洋之光）
+    "ShopPick_Badge_008": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 深邃大洋之弦（4000，限购上限 4；卡片显示前缀：深邃大洋之弦）
+    "ShopPick_Badge_009": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 深邃大洋之芒（4000，限购上限 4；卡片显示前缀：深邃大洋之芒）
+    "ShopPick_Badge_010": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 祝福生命之棱（4000，限购上限 4；卡片显示前缀：祝福生命之棱）
+    "ShopPick_Badge_011": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 祝福生命之种（4000，限购上限 4；卡片显示前缀：祝福生命之种）
+    "ShopPick_Badge_012": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 祝福生命之芽（4000，限购上限 4；卡片显示前缀：祝福生命之芽）
+    "ShopPick_Badge_013": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 远古熔岩之握（4000，限购上限 4；卡片显示前缀：远古熔岩之握）
+    "ShopPick_Badge_014": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 远古熔岩之牙（4000，限购上限 4；卡片显示前缀：远古熔岩之牙）
+    "ShopPick_Badge_015": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 远古熔岩之触（4000，限购上限 4；卡片显示前缀：远古熔岩之触）
+    "ShopPick_Badge_016": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 长空祈愿之力（4000，限购上限 4；卡片显示前缀：长空祈愿之力）
+    "ShopPick_Badge_017": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 长空祈愿之终（4000，限购上限 4；卡片显示前缀：长空祈愿之终）
+    "ShopPick_Badge_018": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 长空祈愿之视（4000，限购上限 4；卡片显示前缀：长空祈愿之视）
+    "ShopPick_Badge_019": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 星间通信书（2000，限购上限 5；卡片显示前缀：星间通信书）
+    "ShopPick_Badge_020": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 天使之羽（500，限购上限 5；卡片显示前缀：天使之羽）
+    "ShopPick_Badge_021": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 虚界之镰（500，限购上限 5；卡片显示前缀：虚界之镰）
+    "ShopPick_Badge_022": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 幻影之眼（700，限购上限 5；卡片显示前缀：幻影之眼）
+    "ShopPick_Badge_023": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 伊南娜的心核（240，限购上限 10；卡片显示前缀：伊南娜的心核）
+    "ShopPick_Badge_024": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 伊南娜的神魄（240，限购上限 10；卡片显示前缀：伊南娜的神魄）
+    "ShopPick_Badge_025": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 俄耳浦斯的神魄（240，限购上限 10；卡片显示前缀：俄耳浦斯的神魄）
+    "ShopPick_Badge_026": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 俄里翁的心核（240，限购上限 10；卡片显示前缀：俄里翁的心核）
+    "ShopPick_Badge_027": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 俄里翁的神魄（240，限购上限 10；卡片显示前缀：俄里翁的神魄）
+    "ShopPick_Badge_028": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 卡律布狄斯的心核（240，限购上限 10；卡片显示前缀：卡律布狄斯的心）
+    "ShopPick_Badge_029": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 卡律布狄斯的神魄（240，限购上限 10；卡片显示前缀：卡律布狄斯的神）
+    "ShopPick_Badge_030": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 和音傀的心核（240，限购上限 10；卡片显示前缀：和音傀的心核）
+    "ShopPick_Badge_031": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 和音傀的神魄（240，限购上限 10；卡片显示前缀：和音傀的神魄）
+    "ShopPick_Badge_032": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 孕星烛母的神魄（240，限购上限 10；卡片显示前缀：孕星烛母的神魄）
+    "ShopPick_Badge_033": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 断裁偶的心核（240，限购上限 10；卡片显示前缀：断裁偶的心核）
+    "ShopPick_Badge_034": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 断裁偶的神魄（240，限购上限 10；卡片显示前缀：断裁偶的神魄）
+    "ShopPick_Badge_035": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 斯文托维特的神魄（240，限购上限 10；卡片显示前缀：斯文托维特的神）
+    "ShopPick_Badge_036": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 柏勒洛丰的心核（240，限购上限 10；卡片显示前缀：柏勒洛丰的心核）
+    "ShopPick_Badge_037": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 柏勒洛丰的神魄（240，限购上限 10；卡片显示前缀：柏勒洛丰的神魄）
+    "ShopPick_Badge_038": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 欧若拉的神魄（240，限购上限 10；卡片显示前缀：欧若拉的神魄）
+    "ShopPick_Badge_039": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 欲望泉的心核（240，限购上限 10；卡片显示前缀：欲望泉的心核）
+    "ShopPick_Badge_040": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 欲望泉的神魄（240，限购上限 10；卡片显示前缀：欲望泉的神魄）
+    "ShopPick_Badge_041": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 法厄同的心核（240，限购上限 10；卡片显示前缀：法厄同的心核）
+    "ShopPick_Badge_042": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 法厄同的神魄（240，限购上限 10；卡片显示前缀：法厄同的神魄）
+    "ShopPick_Badge_043": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 潘塔菲卡的心核（240，限购上限 10；卡片显示前缀：潘塔菲卡的心核）
+    "ShopPick_Badge_044": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 潘塔菲卡的神魄（240，限购上限 10；卡片显示前缀：潘塔菲卡的神魄）
+    "ShopPick_Badge_045": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 焚尽花的心核（240，限购上限 10；卡片显示前缀：焚尽花的心核）
+    "ShopPick_Badge_046": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 焚尽花的神魄（240，限购上限 10；卡片显示前缀：焚尽花的神魄）
+    "ShopPick_Badge_047": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 珀尔修斯的心核（240，限购上限 10；卡片显示前缀：珀尔修斯的心核）
+    "ShopPick_Badge_048": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 珀尔修斯的神魄（240，限购上限 10；卡片显示前缀：珀尔修斯的神魄）
+    "ShopPick_Badge_049": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 米劳罗的心核（240，限购上限 10；卡片显示前缀：米劳罗的心核）
+    "ShopPick_Badge_050": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 米劳罗的神魄（240，限购上限 10；卡片显示前缀：米劳罗的神魄）
+    "ShopPick_Badge_051": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 苏尔特尔的心核（240，限购上限 10；卡片显示前缀：苏尔特尔的心核）
+    "ShopPick_Badge_052": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 苏尔特尔的神魄（240，限购上限 10；卡片显示前缀：苏尔特尔的神魄）
+    "ShopPick_Badge_053": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 赫拉斯瓦尔格的神魄（240，限购上限 10；卡片显示前缀：赫拉斯瓦尔格的）
+    "ShopPick_Badge_054": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 迪亚波罗的神魄（240，限购上限 10；卡片显示前缀：迪亚波罗的神魄）
+    "ShopPick_Badge_055": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 阿格莱亚的神魄（240，限购上限 10；卡片显示前缀：阿格莱亚的神魄）
+    "ShopPick_Badge_056": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 伊南娜的残魂（120，限购上限 20；卡片显示前缀：伊南娜的残魂）
+    "ShopPick_Badge_057": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 俄耳浦斯的残魂（120，限购上限 20；卡片显示前缀：俄耳浦斯的残魂）
+    "ShopPick_Badge_058": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 俄里翁的残魂（120，限购上限 20；卡片显示前缀：俄里翁的残魂）
+    "ShopPick_Badge_059": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 卡律布狄斯的残魂（120，限购上限 20；卡片显示前缀：卡律布狄斯的残）
+    "ShopPick_Badge_060": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 和音傀的残魂（120，限购上限 20；卡片显示前缀：和音傀的残魂）
+    "ShopPick_Badge_061": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 孕星烛母的残魂（120，限购上限 20；卡片显示前缀：孕星烛母的残魂）
+    "ShopPick_Badge_062": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 断裁偶的残魂（120，限购上限 20；卡片显示前缀：断裁偶的残魂）
+    "ShopPick_Badge_063": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 斯文托维特的残魂（120，限购上限 20；卡片显示前缀：斯文托维特的残）
+    "ShopPick_Badge_064": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 柏勒洛丰的残魂（120，限购上限 20；卡片显示前缀：柏勒洛丰的残魂）
+    "ShopPick_Badge_065": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 欧若拉的残魂（120，限购上限 20；卡片显示前缀：欧若拉的残魂）
+    "ShopPick_Badge_066": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 欲望泉的残魂（120，限购上限 20；卡片显示前缀：欲望泉的残魂）
+    "ShopPick_Badge_067": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 法厄同的残魂（120，限购上限 20；卡片显示前缀：法厄同的残魂）
+    "ShopPick_Badge_068": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 潘塔菲卡的残魂（120，限购上限 20；卡片显示前缀：潘塔菲卡的残魂）
+    "ShopPick_Badge_069": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 焚尽花的残魂（120，限购上限 20；卡片显示前缀：焚尽花的残魂）
+    "ShopPick_Badge_070": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 珀尔修斯的残魂（120，限购上限 20；卡片显示前缀：珀尔修斯的残魂）
+    "ShopPick_Badge_071": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 米劳罗的残魂（120，限购上限 20；卡片显示前缀：米劳罗的残魂）
+    "ShopPick_Badge_072": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 苏尔特尔的残魂（120，限购上限 20；卡片显示前缀：苏尔特尔的残魂）
+    "ShopPick_Badge_073": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 赫拉斯瓦尔格的残魂（120，限购上限 20；卡片显示前缀：赫拉斯瓦尔格的）
+    "ShopPick_Badge_074": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 迪亚波罗的残魂（120，限购上限 20；卡片显示前缀：迪亚波罗的残魂）
+    "ShopPick_Badge_075": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 阿格莱亚的残魂（120，限购上限 20；卡片显示前缀：阿格莱亚的残魂）
+    "ShopPick_Badge_076": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 初级讨伐证明（40，限购上限 50；卡片显示前缀：初级讨伐证明）
+    "ShopPick_Badge_077": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 高级讨伐证明（120，限购上限 50；卡片显示前缀：高级讨伐证明）
+    "ShopPick_Badge_078": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 传奇讨伐证明（360，限购上限 50；卡片显示前缀：传奇讨伐证明）
+    "ShopPick_Badge_079": {
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

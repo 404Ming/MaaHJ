@@ -1,0 +1,42 @@
+# MaaHJ
+
+由 create-maa-project 生成的 MaaFW Python Agent 项目。
+
+## 开发
+
+```bash
+uv sync
+uv run python agent/main.py
+```
+
+如果根目录存在 `package.json`，还可运行 `pnpm install`、`pnpm check` 和 `pnpm check:py`
+使用生成的格式化与校验工具。在 VS Code 中打开项目时，`.vscode/tasks.json` 会自动执行
+`uv sync` 和 `pnpm install --frozen-lockfile`。
+
+Agent 入口在 `agent/main.py`（含 Python 版本检查）；发布包自带 Python 运行时与依赖，
+由包内解释器直接启动。
+Agent runtime 在 `agent/agent_runtime.py`，会导入 `agent/custom/action`、`agent/custom/reco`
+和 `agent/custom/sink` 中的模块并注册自定义逻辑。PI 环境变量、参数解析、日志和路径工具在
+`agent/utils/`。
+VS Code Maa Support 插件通过 `uv run python agent/main.py` 启动 AgentServer；
+调试会使用 `.vscode/launch.json` 中的 `Maa Agent: Debug` 配置，映射在
+`maatools.config.mts`。
+
+## 添加 Python 依赖
+
+```bash
+uv add <包名>
+create-maa-project --update python-deps
+```
+
+`uv add` 只更新 `pyproject.toml`、`uv.lock` 和本地 `.venv`；`requirements.in` / `requirements.txt`
+由 `--update python-deps` 从 `pyproject.toml` 重新生成。发布包按 `requirements.txt` 预装依赖，所以
+加完依赖必须跑这一步，并把 `pyproject.toml`、`uv.lock`、`requirements.in`、`requirements.txt` 一起
+提交，否则本地能跑、发布包里缺依赖。
+
+## 发布
+
+如果存在 `.github/workflows/release.yml`，推送 `v0.1.0` 这样的 tag 会触发发布。
+未启用时，可运行 `create-maa-project --add github` 添加 CI 和 Release 自动化。
+
+English documentation: [README.en.md](./README.en.md)

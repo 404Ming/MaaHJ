@@ -1,0 +1,484 @@
+{
+    "MachineGodDescent_Start": {
+        // 机神降临（活动）入口段监督节点。候选顺序 =「界面状态越靠后越优先」，逐级逼近目标页：
+        //   公共异常 → 主页右下「菜单」→ 菜单页「活动」→ 活动一览「机神降临」→ 机神降临页锚点
+        // 每一步执行完都由 [JumpBack] 回到本节点重新判定；已在机神降临页时第一个正常候选就是
+        // PageDock，直接交接（后续自动探索流程接在 PageDock 后面）。
+        // ⚠️ 本节点是 DirectHit（无 recognition）→ **识别永不失败 → on_error 永不触发**，
+        //    所以末位必须挂 [JumpBack]Exception_Unknown 兜底（只在前面全不命中时走到），
+        //    否则遇到弹窗挡屏/未知页面会 next 耗尽 → bad next 直接把任务判死。
+        "action": {
+            "type": "DoNothing"
+        },
+        // timeout = 本次候选列表的**识别预算**。实测教训（08:53:38 那轮）：
+        // 列表里有 3 个 OCR 候选（Exception_Start / OpenMenu / PageDock），
+        // 逐个截图+识别会超过 4000ms（框架日志 `Task timeout [duration=4101ms] [reco_timeout=4000ms]`），
+        // 列表被中断 ⇒ 同样报 `PipelineTask bad next` ⇒ 任务判 FAILED。
+        // 现在列表里有 6 个 OCR 候选（Exception_Start / OpenMenu / OpenActivityEntry /
+        // OpenEventCard / ClaimExploreReward / PageDock），放宽到 12000ms 留足评估时间。
+        "timeout": 12000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]MachineGodDescent_OpenMenu",
+            "[JumpBack]MachineGodDescent_OpenActivityEntry",
+            "[JumpBack]MachineGodDescent_OpenEventCard",
+            "[JumpBack]MachineGodDescent_ClaimExploreReward",
+            "MachineGodDescent_PageDock",
+            "[JumpBack]MachineGodDescent_UnknownFallback",
+            "MachineGodDescent_StopTask"
+        ]
+    },
+    // ⚠️ 末位 StopTask 是**必须的**，它决定任务成败判定（实测事故 08:53:38）：
+    //    整条流程跑完、回到主页后，控制权会回到本监督节点的候选列表重新判定，此时
+    //    导航候选的 max_hit 已用尽、主页上 PageDock 不命中、兜底保险丝也已用尽 ——
+    //    所有候选全不命中 ⇒ 框架报 `PipelineTask bad next` ⇒ **任务判 FAILED**
+    //    （客户端日志 `任务失败：机神降临`、`停止前状态：FAILED`）。
+    //    StopTask 是 DirectHit（永远命中）+ 显式结束任务 ⇒ 既不会 bad next，也不会空转。
+    "MachineGodDescent_UnknownFallback": {
+        // DirectHit 监督节点的「全都不命中」出口：只在前面候选全不命中时走到，
+        // 把控制权交给异常链（关 X → 退一级 → 回主页），跑完由 [JumpBack] 回监督节点重新判定。
+        //
+        // ⚠️ max_hit 是**必须的保险丝**，实测教训：异常链末端的 Exception_BackToHub 里，
+        //    Exception_AtHub（认「惑星之间」）在**主页上会命中且没有动作**，链结束后 [JumpBack]
+        //    回到本监督节点重新判定 —— 而主页上 OpenMenu 又会命中（主页右下就是「菜单」），
+        //    于是又走一遍 菜单→活动→机神降临；即便 OpenMenu 的 max_hit 用尽，兜底这一路仍会
+        //    无限循环。用户实测现象就是"已经回到主页，脚本几分钟不结束、画面一动不动"。
+        //    用满 2 次就停止兜底 → 候选耗尽 → 任务正常结束。
+        "max_hit": 2,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": ["Exception_Unknown"]
+    },
+    "MachineGodDescent_OpenMenu": {
+        // 主页底部导航最右侧「菜单」。实测 OCR box (636,1228,57,36) score 0.999。
+        // ⚠️ ROI 必须只框右下导航区：菜单页顶部有标题「菜单MENU」(86,218,154,60)，
+        //    全屏认「菜单」会把标题当成主页导航按钮，直接把流程带飞。
+        //    这也是项目既有节点的做法（Mail_OpenMenu / Shop_Enter_FromMenu / Wish_OpenMenu）。
+        // max_hit 1：导航是**一次性**动作。实测（09:01 那轮）监督节点在流程跑完回到主页后会重新判定，
+        // 导航候选再次命中 ⇒ 又走一遍菜单→活动→机神降临（用户看到"运行了两次"），
+        // 第二次进机神降临页时 PageDock 又命中、而 body 已被 max_hit 卡住 ⇒ PageDock 的 next 报 bad next ⇒ 判失败。
+        // 把导航也钉成 1 次，第二轮根本不会发生。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": ["菜单"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_Start"]
+    },
+    "MachineGodDescent_OpenActivityEntry": {
+        // 菜单页左侧功能列第一行的「活动」图标。
+        // ⚠️ 实测「活动」被 OCR 拆成两个字框：活(157,600,44,42) + 动(177,638,38,38)，
+        //    整串「活动」永远匹配不到（与项目里「商店」→ 商+店 同一个坑），所以 expected 用单字「活」。
+        // 同 ROI 内不会有别的「活」；同行的背包/商店是 背/包、商/店，互不干扰。
+        // max_hit 1：与 OpenMenu 同理，导航只允许发生一次（防止第二轮重跑导致 bad next）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    120,
+                    575,
+                    130,
+                    100
+                ],
+                "expected": ["活"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_Start"]
+    },
+    "MachineGodDescent_OpenEventCard": {
+        // 活动一览里的「机神降临」卡片（实测 OCR box (99,334,231,67) score 0.999，点框中心能进活动页）。
+        // ⚠️ 同一页还有「终末之战」卡片 (90,148,252,70)，两个活动都真实存在，必须靠文字区分开。
+        // ROI 只框上方两张卡片所在的竖带，避开下方「加入QQ群」「魂石x100」等无关文字。
+        // max_hit 1：与 OpenMenu 同理，导航只允许发生一次。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    80,
+                    300,
+                    280,
+                    130
+                ],
+                "expected": ["机神降临"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_Start"]
+    },
+    "MachineGodDescent_ClaimExploreReward": {
+        // 自动探索**自然结束**后进入机神降临页会自动弹「自动获取收获」奖励框（实测截图），
+        // 必须先点「收获奖励」(305,738,107,38) 领奖，框关掉后「探索」才会重新可见。
+        // ⚠️ 奖励框盖住整个页面且背景被压暗压糊：实测整页 OCR 只剩框内 5 行，「探索」认不到
+        //    ⇒ PageDock 必然 miss，若不先领奖，入口段会落进 UnknownFallback 空转到耗尽。
+        // 识别用「收获奖励」**整串**：手动停止的面板同名按钮在 (439,740)，ROI 横向只到 435，
+        // 与它不相交（且那种面板只在 AutoExploreSetup 内部出现，不会在监督节点这一层出现）。
+        // max_hit 1：领奖是一次性动作；没领掉也不会无限重试（落到 UnknownFallback 有界兜底）。
+        // 领完 [JumpBack] 回监督节点重新判定 → 框已关、PageDock 命中 → 走正常流程。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    280,
+                    715,
+                    155,
+                    70
+                ],
+                "expected": ["收获奖励"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_Start"]
+    },
+    "MachineGodDescent_PageDock": {
+        // 机神降临页面锚点：右下角「探索」按钮（实测 OCR box (374,1068,69,36) score 1.000）。
+        // 命中即「导航完成、已站在机神降临页」—— 这就是入口段的**成功判据**。
+        // next 指向解锁节点（它自己无 next，因此整条链到此结束，不会回到 Start 造成死循环）。
+        // ⚠️ ROI 只框「探索」自身：右侧还有「自动探索」(603,1068,91,29)；另外 expected 是**全串**匹配，
+        //    「自动探索」不会匹配到裸串「探索」，但 ROI 隔开更稳妥。
+        // max_hit 1：**这是决定"只跑一遍"的关键保险丝**。实测（09:01 那轮）流程跑完回到主页后，
+        // 监督节点会重新判定；若导航又被命中就会第二次进入机神降临页，PageDock 再命中 →
+        // 而它唯一的 next（UnlockAutoExplore，max_hit 1）已用尽 ⇒ 框架报
+        // `Node.NextList.Failed [name=MachineGodDescent_PageDock]` → `bad next` → 任务判 FAILED。
+        // 钉成 1 次后第二轮不可能发生：导航全用尽 → 直接落到末位 StopTask 正常结束。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    340,
+                    1030,
+                    120,
+                    90
+                ],
+                "expected": ["探索"]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": ["MachineGodDescent_UnlockAutoExplore"]
+    },
+    "MachineGodDescent_UnlockAutoExplore": {
+        // max_hit 1：本节点与其后的自动探索本体按「一次任务只做一遍」设计。
+        // 实测教训（08:52 那轮）：跑完回到主页后监督节点的候选会被重新判定，导航候选再次命中，
+        // 于是「停止 → 重新开启」整段又跑了一遍，白耗 240 个侦察工具；加 max_hit 后第二轮不再执行。
+        "max_hit": 1,
+        // 按需解锁「自动探索」（用户要求：锁着就去解锁，流程到此为止）。
+        // 判据来自实机 OCR：「探索N次开启自动探索」box (465,976,232,26) score 1.000 —— 该提示
+        // 只在**锁着**时出现，所以读不到就认为用户已自己解锁 → 不点任何东西直接结束。
+        // 逻辑在 Python（MachineGodDescentUnlockAutoExplore）：要读动态的 N、点 N 次、
+        // 每次点击后校验读数递减；pipeline 的 expected 是静态全串匹配，抓不住变化中的数字。
+        // ⚠️ 点击「探索」是**消耗性**动作（消耗探索次数/道具）：只在任务设置「自动探索领取」开启时
+        //    才点；开关关掉即整段跳过，开关节点读不到也按关闭处理（不擅自消费）。
+        // ⚠️ 本节点无 next：按「流程先写到这里」，后续自动探索本体/领取将来接在它后面。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "MachineGodDescentUnlockAutoExplore"
+            }
+        },
+        "timeout": 5000,
+        "next": ["MachineGodDescent_AutoExplore"]
+    },
+    "MachineGodDescent_AutoExplore": {
+        // max_hit 1：**这是会真实消耗侦察工具的节点**，必须保证一次任务只跑一遍
+        // （实测：监督节点候选被重新判定时它会再跑一次，stop→start 又花掉 240 个侦察工具）。
+        "max_hit": 1,
+        // 自动探索本体（第三段）：已经在探索中就先停止 → 重新开启 → 返回主页。
+        // 整段做成**一个状态化 CustomAction**（多步弹窗 + 读数校验 + 后置观测），
+        // 形态与项目既有的 PickSupport 一致；避免用 pipeline 的 max_hit/[JumpBack] 去表达
+        // 「停止→再开启」这种会自相矛盾的顺序（第二次进监督节点会把刚开的又停掉）。
+        // ⚠️ 会消耗侦察工具（每 1 小时 60 个）；开关「自动探索领取」关闭或节点读不到时整段跳过。
+        // 实测控件：「停止自动探索」(264,1064) / 面板「停止探索」(173,737) /
+        // 「自动探索」(602,1066) / 面板时长「4小时」(248,602) 与工具「240/271」(479,780) /
+        // 面板「开启探索」(447,830)。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "MachineGodDescentAutoExploreSetup"
+            }
+        },
+        "timeout": 120000,
+        "next": ["MachineGodDescent_GodChallenge"]
+    },
+    "MachineGodDescent_GodChallenge": {
+        // 挑战「机神降临」（用户需求，仿照元素自律机械）：机神降临页点「挑战机神」/
+        // 「机神降临!!!」横幅 → 邀请框「前往」→ 机神挑战页「创建房间」→ 助战选择 →
+        // 编队「确定」→ 房间「开始战斗」→ 确认「确定」→ 进战斗（自动战斗、多人房间战）
+        // → 等机神 HP 归零「作战胜利」/ 时间到「作战失败」结算页 → 退出 → 回机神降临页。
+        // times 来自任务设置「机神降临挑战次数」（interface.json 的 input 选项注入
+        //   custom_action_param.times，与「自律机械挑战次数」同一套接线）。
+        // ⚠️ 会真实消耗挑战次数（邀请框「剩余挑战次数」）；开关「挑战机神降临」关闭或
+        //    节点读不到时整段跳过。
+        // ⚠️ 一场机神战最长约 39 分钟（多人房间战）：timeout 给 50 分钟覆盖单场
+        //    （战斗推进 1000 步 × ~2.5s ≈ 41 分钟 + 前置步骤）；
+        //    若 times>1，总时长可能超过 timeout，建议次数设 1。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "MachineGodDescentGodChallenge",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3000000,
+        "next": ["MachineGodDescent_ElementMachine"]
+    },
+    "MachineGodDescent_ElementMachine": {
+        // 挑战「元素自律机械」（用户第四段需求）：进入挑战页 → 按设置次数重复
+        //   挑战 → 助战选择 → 开始战斗 → （本活动**没有**「挑战下一关」，所以打完点「确认」）
+        //   → 回到自律机械挑战页；打满设置次数或**次数不足**就停，最后交给上层返回主页。
+        // times 来自任务设置「自律机械挑战次数」（interface.json 的 input 选项注入
+        //   custom_action_param.times，与既有「挑战次数」同一套接线）。
+        // ⚠️ 会真实消耗挑战次数；开关「挑战元素自律机械」关闭或节点读不到时整段跳过。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "MachineGodDescentElementMachineChallenge",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 600000,
+        "next": ["MachineGodDescent_BackHome"]
+    },
+    "MachineGodDescent_BackHome": {
+        // 收尾：返回主页（机神降临页 → 活动一览 → 菜单页 → 主页，退三级）。
+        // 实测左下角返回图标在机神降临页 score 0.933、活动一览/菜单页 1.000、主页不命中，
+        // 所以直接复用项目既有的回主页链最省事、也最一致。
+        // ⚠️ 必须是**前向** BackToMainHub_Start（与 Weekly_ReturnHome 的注释同理）：
+        //    加 [JumpBack] 会让调用栈退不出来、原地死循环。
+        // ⚠️ 后面必须跟 StopTask 显式结束任务：本段链是从 Start 的候选走下来的，
+        //    回主页链跑完后框架会把控制权交回 Start 的候选列表继续判定（不是结束任务），
+        //    而主页上「菜单」又会命中 → 又跑一遍整条流程 / 或在兜底与异常链之间打转。
+        //    实测现象："已回到主页，但脚本几分钟不结束、画面不动"。StopTask 一按即结束。
+        "next": [
+            "BackToMainHub_Start",
+            "MachineGodDescent_StopTask"
+        ]
+    },
+    "MachineGodDescent_StopTask": {
+        // 终点：显式结束本次任务（回到主页之后调用，不再让监督节点重新判定）。
+        "action": {
+            "type": "StopTask"
+        }
+    },
+    "MachineGodDescent_Flag_AutoExploreClaim": {
+        // 任务设置「自动探索领取」的开关载体（interface.json 的 switch 选项覆写本节点 enabled）。
+        // ⚠️ 必须是**预定义节点**：pipeline_override 只做属性合并、不会创建节点，
+        //    少了它客户端的选项会静默失效（get_node_data 拿到 None）。
+        // 读取方式：context.get_node_data("MachineGodDescent_Flag_AutoExploreClaim")["enabled"]。
+        // 纯载体：不被任何 next 引用、永不执行，只是把这个布尔值带到运行时。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "MachineGodDescent_Flag_ElementMachineChallenge": {
+        // 任务设置「挑战元素自律机械」的开关载体（同上，由 switch 选项覆写 enabled）。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "MachineGodDescent_Flag_GodChallenge": {
+        // 任务设置「挑战机神降临」的开关载体（同上，由 switch 选项覆写 enabled）。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "MachineGodDescent_CreateRoom": {
+        // 「创建房间」公共流程入口（纯 JSON 状态机），前置条件：已在机神挑战页（能看到「创建房间」）。
+        // 流程：创建房间 → (助战选择) → 编队「确定」→ 房间「开始战斗」→ (确认「确定」) → 进入战斗。
+        // ⚠️ 有 recognition 门控（OCR「创建房间」）：供其他任务通过 `[JumpBack]MachineGodDescent_CreateRoom`
+        //    调用——只在机神挑战页命中，不在该页不会误触发，也就不会 [JumpBack] 原地死循环。
+        //    （旧版是 Custom 包装、无 recognition，[JumpBack] 引用会永远命中。）
+        // 机神降临挑战内部仍直接调 Python `_create_god_room`（不经本节点，避免嵌套 run_task 开销）；
+        //    本节点用于其他流程复用 / 独立调试，默认不参与主流程（不被任何 next 引用）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    400,
+                    1000,
+                    220,
+                    90
+                ],
+                "expected": [
+                    "创建房间"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 15000,
+        "next": [
+            "MachineGodDescent_CreateRoom_AfterCreate"
+        ]
+    },
+    "MachineGodDescent_CreateRoom_AfterCreate": {
+        // 点完「创建房间」后的分支：可能弹「助战选择」，也可能直接进编队页。
+        // 两条候选按序识别，首个命中的接管：弹窗在场 → 选第一条；否则 → 编队「确定」。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 15000,
+        "next": [
+            "MachineGodDescent_CreateRoom_PickSupport",
+            "MachineGodDescent_CreateRoom_Formation"
+        ]
+    },
+    "MachineGodDescent_CreateRoom_PickSupport": {
+        // 助战选择弹窗：点列表第一条（Rank 行按 y 升序取最上面一条，落点下移 30 到条目热区，同项目 PickSupport）。
+        // ⚠️ 不复用 GameplayChallenge_PickSupport / PickSupport CustomAction：它的编队页校验锚点是
+        //    「开始战斗」（_on_formation_page），而机神降临创建房间的编队页按钮是「确定」，直接套用会
+        //    点完助战后误判「没进编队页」、连试 3 次失败；其按属性筛选 / 元素页签逻辑也是玩法挑战编队页特有。
+        //    这里保留机神降临原 Python `_pick_support` 的「点第一条」语义。
+        // expected 用正则 ".*Rank.*"（与 GameplayChallenge_PickSupport 一致，等价 Python `"Rank" in text`）：
+        //    OCR 结果形如 "Rank 3"（带数字后缀），全串匹配裸 "Rank" 抓不住。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    360,
+                    720,
+                    820
+                ],
+                "expected": [
+                    ".*Rank.*"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target_offset": [
+                    0,
+                    30,
+                    0,
+                    0
+                ]
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 5000,
+        "next": [
+            "MachineGodDescent_CreateRoom_Formation"
+        ]
+    },
+    "MachineGodDescent_CreateRoom_Formation": {
+        // 编队页「确定」（ROI 只框底部按钮区，与确认框的「确定」互不干扰）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    280,
+                    1000,
+                    160,
+                    80
+                ],
+                "expected": [
+                    "确定"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 15000,
+        "next": [
+            "MachineGodDescent_CreateRoom_StartBattle"
+        ]
+    },
+    "MachineGodDescent_CreateRoom_StartBattle": {
+        // 房间页「开始战斗」。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    380,
+                    1150,
+                    220,
+                    80
+                ],
+                "expected": [
+                    "开始战斗"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 15000,
+        "next": [
+            "MachineGodDescent_CreateRoom_ConfirmStart"
+        ]
+    },
+    "MachineGodDescent_CreateRoom_ConfirmStart": {
+        // 「是否开始战斗?」确认框「确定」（有才点；没有说明直接进了战斗）。
+        // 无 next：点了确认（或没弹确认框、超时跳过）后即进入战斗，本流程到此结束
+        // （供 [JumpBack] 调用时，结束即返回调用方）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    430,
+                    800,
+                    160,
+                    80
+                ],
+                "expected": [
+                    "确定"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 10000
+    }
+}

@@ -1,0 +1,72 @@
+{
+    "BackToMainHub_Start": {
+        // 入口：先判定是否已在主页；不在主页则尝试点「返回 / 世界」回到主页。
+        // next 只放条件节点：无条件 DirectHit 节点会让后面的候选永远不被识别。
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "BackToMainHub_AtMainHub",
+            "[JumpBack]BackToMainHub_Back"
+        ]
+    },
+    "BackToMainHub_AtMainHub": {
+        // 主页判定：底部导航第一个按钮显示「惑星之间」。
+        // 子页面时同一位置显示「返回 / 世界」，故该 ROI 可稳定区分两种状态。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 5000,
+        "next": [
+            "BackToMainHub_Done"
+        ]
+    },
+    "BackToMainHub_Back": {
+        // 子页面判定并返回：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        // 比 OCR「返回|世界」更稳：实测子页面左下角是纯图标按钮（无文字），OCR 反而读不到。
+        // 执行完由 [JumpBack] 回 Start 重新判定。
+        // max_hit 限制返回层级：异常画面下最多点 5 次，之后候选耗尽、任务安全停止。
+        "max_hit": 5,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000
+    },
+    "BackToMainHub_Done": {
+        // 完成态：已停在主页（惑星之间），可交给后续任务。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

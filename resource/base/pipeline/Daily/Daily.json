@@ -1,0 +1,466 @@
+{
+    "Daily_Start": {
+        // 入口：不在每日任务页则先打开它，然后在页内主循环里处理。
+        // next 只放条件节点：无条件 DirectHit 节点会让后面的候选永远不被识别。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 20000,
+        "next": [
+            "[JumpBack]Daily_OpenPage",
+            "Daily_Main"
+        ]
+    },
+    "Daily_OpenPage": {
+        // 主页右侧功能列里的「每日任务」入口。执行完由 [JumpBack] 回 Start。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    560,
+                    380,
+                    160,
+                    700
+                ],
+                "expected": [
+                    "每日任务"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 2500
+    },
+    "Daily_Main": {
+        // 页内主循环：①先领完可领奖励 ②奖杯≥30 则领里程碑奖励并收尾 ③否则按优先级去完成任务。
+        // 每一轮从列表头部重新判定（领取后列表会重排，可领取的行会浮到最上）。
+        // next 首位挂公共异常处理：遮屏弹窗 / 断线弹窗 / 体力弹窗先兜掉，没有异常立刻交回本列表。
+        // 注意本节点 timeout=3000 太短，不能当「卡死」窗口，故这里不挂 on_error → Exception_Unknown。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]Daily_ClaimRewards",
+            "Daily_TrophyEnough",
+            "[JumpBack]Daily_PickTask"
+        ]
+    },
+    "Daily_ClaimRewards": {
+        "max_hit": 12,
+        // 领取任务奖励：完成后按钮由「前往」变为「领取」，领取后行置灰为「已完成」。
+        // order_by + index 取最上面那条「领取」；max_hit 限制单次运行的领取次数。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    60,
+                    440,
+                    660,
+                    640
+                ],
+                "expected": [
+                    "领取"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 2000
+    },
+    "Daily_TrophyEnough": {
+        // 奖杯判定：顶部奖杯数字 ≥ 30 时命中（30-99 或 100+，用正则表达「大于等于」）。
+        // 25 / 29 这类两位数不会命中；命中后走「领里程碑 → 回主页」收尾分支。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    400,
+                    90,
+                    55
+                ],
+                "expected": [
+                    "[3-9][0-9]|\\d{3,}"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Daily_ClaimMilestone"
+        ]
+    },
+    "Daily_ClaimMilestone": {
+        // 领取 30 奖杯里程碑宝箱（紫水晶 x100）。
+        // 用「未领取」状态的图标做模板匹配：已达到且未领取时该位置是紫水晶图标，领取后变成对勾。
+        // （不能用 OCR「100」判断：领取后角标 100 仍在，会误判为未领取。）
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    540,
+                    320,
+                    140,
+                    120
+                ],
+                "template": "Daily/Milestone30Reward.png",
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 2000,
+        "next": [
+            "Daily_CloseRewardPopup",
+            "Daily_BackToHub"
+        ]
+    },
+    "Daily_CloseRewardPopup": {
+        // 「恭喜获得」弹窗：点提示文字所在的空白区域关闭。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    925,
+                    250,
+                    60
+                ],
+                "expected": [
+                    "点击空白区域关闭"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 2000,
+        "next": [
+            "Daily_BackToHub"
+        ]
+    },
+    "Daily_BackToHub": {
+        "max_hit": 1,
+        // 每日任务页左下角返回按钮（图标按钮，无文字）：点它回到主页（惑星之间）。
+        // 模板取自实拍截图裁剪：BackButton.png 是白色双箭头样式；
+        // BackButton2.png 是徽章式返回键（古代之塔等页面）中央的金色箭羽纹。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 2500,
+        "next": [
+            "Daily_Done"
+        ]
+    },
+    "Daily_Done": {
+        // 完成态：奖杯已达标并领到里程碑奖励，游戏停在主页，可交给后续任务。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Daily_PickTask": {
+        // 任务优先级（用户指定，与游戏列表顺序一致）：
+        // 完成1次史莱姆宝库 > 完成1次任意元素试炼副本 > 累积消耗体力50点 > 创建一次房间。
+        // 每个任务节点先确认标题在列表中，再由对应的「前往」节点点击按钮。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Daily_Task_Slime",
+            "Daily_Task_ElementTrial",
+            "Daily_Task_Stamina",
+            "Daily_Task_CreateRoom"
+        ]
+    },
+    "Daily_Task_Slime": {
+        // 优先级 1：完成1次史莱姆宝库。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    470,
+                    340,
+                    570
+                ],
+                "expected": [
+                    ".*史莱姆宝库.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Daily_Go_Slime"
+        ]
+    },
+    "Daily_Go_Slime": {
+        "max_hit": 1,
+        // 点该行的「前往」（行内按钮位置随列表重排变化，故按整列取最上面一个「前往」）。
+        // max_hit 1：本任务每次运行只导航一次，避免在玩法页与列表页之间反复点击。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    470,
+                    140,
+                    580
+                ],
+                "expected": [
+                    "前往"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3500,
+        "timeout": 2000,
+        "next": [
+            "Daily_AlreadyOnDailyPage",
+            "Daily_BackToDailyPage"
+        ]
+    },
+    "Daily_Task_ElementTrial": {
+        // 优先级 2：完成1次任意元素试炼副本。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    470,
+                    340,
+                    570
+                ],
+                "expected": [
+                    ".*元素试炼.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Daily_Go_ElementTrial"
+        ]
+    },
+    "Daily_Go_ElementTrial": {
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    470,
+                    140,
+                    580
+                ],
+                "expected": [
+                    "前往"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3500,
+        "timeout": 2000,
+        "next": [
+            "Daily_AlreadyOnDailyPage",
+            "Daily_BackToDailyPage"
+        ]
+    },
+    "Daily_Task_Stamina": {
+        // 优先级 3：累积消耗体力50点。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    470,
+                    340,
+                    570
+                ],
+                "expected": [
+                    ".*消耗体力.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Daily_Go_Stamina"
+        ]
+    },
+    "Daily_Go_Stamina": {
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    470,
+                    140,
+                    580
+                ],
+                "expected": [
+                    "前往"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3500,
+        "timeout": 2000,
+        "next": [
+            "Daily_AlreadyOnDailyPage",
+            "Daily_BackToDailyPage"
+        ]
+    },
+    "Daily_Task_CreateRoom": {
+        // 优先级 4：创建一次房间。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    470,
+                    340,
+                    570
+                ],
+                "expected": [
+                    ".*创建.*房间.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Daily_Go_CreateRoom"
+        ]
+    },
+    "Daily_Go_CreateRoom": {
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    470,
+                    140,
+                    580
+                ],
+                "expected": [
+                    "前往"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3500,
+        "timeout": 2000,
+        "next": [
+            "Daily_AlreadyOnDailyPage",
+            "Daily_BackToDailyPage"
+        ]
+    },
+    "Daily_AlreadyOnDailyPage": {
+        // 「已经在每日任务列表页」判定：放在各个「前往」节点 next 的首位，命中即结束该任务分支、什么都不做，
+        // 这样导航往返回来时不会在列表页上再点一次返回。
+        // TODO: 副本内的自动完成（开始挑战 → 助战选择 → 编队 → 战斗回合 → 结算）尚未实现；
+        // 当前「前往」只做导航并原路返回，见任务记录中的 EXPLORE 观察。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    420,
+                    225,
+                    240,
+                    50
+                ],
+                "expected": [
+                    "每天05:00刷新"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000
+    },
+    "Daily_BackToDailyPage": {
+        "max_hit": 4,
+        // 从「前往」落地的页面返回每日任务列表页（左下角图标返回按钮，与每日任务页是同一个控件）。
+        // max_hit 4：返回层级有限，异常画面下也不会连点退到主页。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 2500
+    }
+}

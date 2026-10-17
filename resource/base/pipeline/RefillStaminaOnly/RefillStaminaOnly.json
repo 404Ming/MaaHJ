@@ -1,0 +1,28 @@
+{
+    "RefillStaminaOnly_Start": {
+        // 仅补充体力：常驻轮询循环，逻辑与「仅跳过回合」一致 —— 除非用户在客户端手动结束任务，否则永不收尾。
+        // 入口故意不写 recognition —— 协议默认 DirectHit（不做识别、直接执行动作），所以本节点每轮必然命中，
+        // 也就永远不会出现「next 列表全部识别失败 → 超时」这种把任务判死的情况。
+        // 按要求不写 on_error、不写 max_hit、不做任何超时兜底：本任务只做「检测到弹窗就补」，唯一结束方式是用户手动停任务。
+        // 轮询节奏：亚秒级（静态图实测每轮 0.2~0.5s：父节点 DoNothing 的 pre_delay / post_delay 沿用全局默认
+        // 200 + 200ms，每轮还会带一次「补充体力」标题的 OCR 判定，真机上再加一次截图耗时）。
+        // next 的两条候选：
+        //   1) [JumpBack]StaminaRefill_Dialog —— 它本身就是「补充体力」弹窗的标题门控（与玩法挑战门控 / 公共异常处理
+        //      用的是同一套判定，所以这里直接复用，不再重复一份门控 OCR）。命中说明弹窗正在，于是整条 StaminaRefill
+        //      状态机跑一遍：按全局配置「体力药消耗优先级」消耗体力药，收尾在 StaminaRefill_Back 关掉弹窗；
+        //      跑完由 [JumpBack] 回到本节点继续轮询，因此补完一次不会收尾，也不会重启任务或改动调用方流程。
+        //   2) RefillStaminaOnly_Start —— 没检测到弹窗就落回自己，继续下一轮轮询。
+        // 补完一次后不会马上重入流程：StaminaRefill_Back（关弹窗）自带 post_delay 800ms，回到本节点重新判定时
+        // 弹窗已经关干净了，不会出现「刚补完又被判成弹窗还在、再跑一趟」的空转。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "[JumpBack]StaminaRefill_Dialog",
+            "RefillStaminaOnly_Start"
+        ]
+    }
+}

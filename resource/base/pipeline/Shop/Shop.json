@@ -1,0 +1,932 @@
+{
+    "Shop_Start": {
+        // 「商店购买」总入口：固定顺序跑四段子流程 —— 折扣礼包 → 征伐印记商店 → 公会商店 → 回主页。
+        // 用 SubTask 串段而不是靠 Shop_Start 的 next 候选排序：候选排序表达不了「必须先做 A 再做 B」，
+        // 而进入商店时停留的商店是上一次选的（可能是公会商店），后段的页锚点会被抢先命中。
+        // continue=true：某一段失败也不阻断后面的段；strict=false：整体仍按正常收尾返回。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "SubTask",
+                "custom_action_param": {
+                    "sub": [
+                        "Shop_Enter",
+                        "Shop_Gift",
+                        "Shop_Badge",
+                        "Shop_Guild",
+                        "Shop_BackHome"
+                    ],
+                    "continue": true,
+                    "strict": false
+                }
+            }
+        }
+    },
+    "Shop_OcrProbe": {
+        // 空壳 OCR 节点：ShopBuySelected 在 CustomAction 里用 context.run_recognition 拿它做整页/局部 OCR，
+        // ROI 由调用方按当次需要传 override，所以这里的默认 ROI 写成 [0,0,0,0]（即整屏，MaaFramework 的未设置约定）。
+        // 注意 param 不能省：schema 的识别类型是 anyOf，必须给 param 或 param_code，否则 check:schema 会失败。
+        // 本节点不参与任何 next 链，只作为识别模板存在。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    0,
+                    0,
+                    0
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Shop_Enter": {
+        // 商店入口段：整条任务的第一段，只做一件事 —— 确保「已经在商店页」。
+        // 候选按优先级排：已经在商店里就不动 → 主页左侧「商店」 → 主页右下「菜单」 → 菜单页「商店」。
+        // 每个候选都用页锚点门控，绝不在没有锚点的页面上盲点（商店页、菜单页、主页三者的锚点互斥）。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 30000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Shop_Enter_AtShop",
+            "Shop_Enter_FromHub",
+            "Shop_Enter_FromMenu",
+            "Shop_Enter_MenuShop",
+            "Shop_Enter_Done"
+        ],
+        "on_error": [
+            "Shop_Enter_Done"
+        ]
+    },
+    "Shop_Enter_AtShop": {
+        // 页内标题「商店」（实测 OCR box (97,11,64,35)）：命中说明已经在商店页，本段直接收尾。
+        "max_hit": 6,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    0,
+                    160,
+                    60
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Shop_Enter_Done"
+        ]
+    },
+    "Shop_Enter_FromHub": {
+        // 主页左侧功能列「商店」（实测 OCR box (42,451,34,18)）。商店页与菜单页这一列都没有「商店」，不会误点。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    10,
+                    410,
+                    140,
+                    110
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "next": [
+            "Shop_Enter_Done"
+        ]
+    },
+    "Shop_Enter_FromMenu": {
+        // 主页找不到商店入口时的兜底：主页右下角「菜单」（实测 OCR box (637,1232,55,32)）。
+        // 菜单页右下角是「设置」(623,1213)，文字不同，不会把菜单页误当成主页再点一次。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    600,
+                    1190,
+                    120,
+                    90
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "next": [
+            "Shop_Enter_MenuShop"
+        ]
+    },
+    "Shop_Enter_MenuShop": {
+        // 菜单页（MENU）里的「商店」入口。注意实测这里被 OCR 拆成两个 box：
+        // 商(611,597,47,48) + 店(634,638,37,38)，整串「商店」永远匹配不到，必须用单字 expected。
+        // 主页同一 ROI 内是「每日任务」(636,629)，商店页侧栏「商店」在 (26,1120)，都不在 ROI 内。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    590,
+                    580,
+                    120,
+                    110
+                ],
+                "expected": [
+                    "商",
+                    "店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "next": [
+            "Shop_Enter_Done"
+        ]
+    },
+    "Shop_Enter_Done": {
+        // 入口段收尾（无 next → 本段结束，交回 SubTask 跑下一段）。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Shop_Gift": {
+        // 折扣礼包段。流程：主页→商店 → 侧栏滚到顶 → 选中「折扣礼包」
+        //   → 点「每日礼包」并确认已选中 → 买勾选项 → 点「每周礼包」并确认已选中 → 买勾选项 → 收尾。
+        // ⚠ 两条 MaaFramework 语义，都是真机实测踩出来的：
+        //   1) 非 [JumpBack] 节点执行完后，候选表会被**它自己的 next 取代**；中间步骤原本没有 next，
+        //      于是任务在第一步执行完就结束（实测本段只跑了 SidebarTop 就退出）。
+        //      所以「做完继续往下走」一律用 [JumpBack]，而段尾的确认→购买链写成显式 next。
+        //   2) 段入口挂 ShopSelectionGate：本组一件都没勾选时返回失败 → on_error 直接跳到 Done，
+        //      连侧栏的「折扣礼包」都不点、也不会进它的标签页（用户明确要求的行为）。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopSelectionGate",
+                "custom_action_param": {
+                    "group": "gift"
+                }
+            }
+        },
+        "timeout": 180000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]Shop_Gift_OpenShop",
+            "[JumpBack]Shop_Gift_SidebarTop",
+            "[JumpBack]Shop_Gift_PickDiscount",
+            "Shop_Gift_ToDaily",
+            "Shop_Gift_Done"
+        ],
+        "on_error": [
+            "Shop_Gift_Done"
+        ]
+    },
+    "Shop_Gift_OpenShop": {
+        // 不在商店里时先从主页进商店（主页左侧「商店」）。在商店里本节点不命中，直接跳过。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    10,
+                    410,
+                    140,
+                    110
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500
+    },
+    "Shop_Gift_SidebarTop": {
+        // 把商店侧栏滚回顶部（侧栏是可滚动的 8 家商店列表，「折扣礼包」在第 2 位）。
+        // 门控用页内标题「商店」；动作是侧栏区域内的下滑手势（手指从上往下 = 列表回滚到前面）。
+        // 已经在顶部时这一步是空操作，不会点错东西。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    0,
+                    160,
+                    60
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    55,
+                    550
+                ],
+                "end": [
+                    55,
+                    1120
+                ],
+                "duration": 400
+            }
+        },
+        "post_delay": 800
+    },
+    "Shop_Gift_PickDiscount": {
+        // 选中侧栏「折扣礼包」（实测 OCR box (4,729,102,32)）。ROI 只框侧栏一列，
+        // 页内内容区的同名文字（如礼包名里带「礼包」）不在这一列，不会误命中。
+        // max_hit 1：只点一次，点完由下面的标签确认节点决定要不要继续（用户明确要求不要连点）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    420,
+                    120,
+                    810
+                ],
+                "expected": [
+                    "折扣礼包"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target_offset": [
+                    10,
+                    -20,
+                    0,
+                    0
+                ]
+            }
+        },
+        "post_delay": 1500
+    },
+    "Shop_Gift_ToDaily": {
+        // 「每日礼包」标签（实测 OCR box (235,385,123,37)）。ROI 只框标签行，
+        // 内容区的分区标题「每日礼包」(y≈445) 在 ROI 下方，不会被点到。
+        // max_hit 1：只点一次 → 交给 Shop_Gift_AtDaily 确认是否真的选中；
+        // 确认失败就跳过每日礼包（不去错误的页签上点购买），直接转去每周礼包。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    215,
+                    375,
+                    165,
+                    55
+                ],
+                "expected": [
+                    "每日礼包"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "next": [
+            "Shop_Gift_AtDaily",
+            "Shop_Gift_ToWeekly"
+        ]
+    },
+    "Shop_Gift_AtDaily": {
+        // 确认「每日礼包」页签已选中。选中态是整块高亮胶囊，实测本 ROI 内「RGB 三通道全 ≥100」
+        // 的像素：选中 7185 个、未选中 873 个 —— count 取 4000 正好卡在两者之间。
+        // 只有本节点命中，Shop_Gift_DailyBuy 才会被走到；确认不过就不会在错误页签上买。
+        "max_hit": 1,
+        "recognition": {
+            "type": "ColorMatch",
+            "param": {
+                "roi": [
+                    185,
+                    355,
+                    210,
+                    80
+                ],
+                "method": 4,
+                "lower": [
+                    100,
+                    100,
+                    100
+                ],
+                "upper": [
+                    255,
+                    255,
+                    255
+                ],
+                "count": 4000
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Shop_Gift_DailyBuy"
+        ]
+    },
+    "Shop_Gift_DailyBuy": {
+        // 每日礼包页：只买用户在「折扣礼包商品」里勾选、且本页存在的礼包
+        // （售罄自动跳过，其它礼包一律不碰）。items 省略 = 用商品表里 gift 组的全部载体节点。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopBuySelected",
+                "custom_action_param": {
+                    "group": "gift",
+                    "roi": [
+                        140,
+                        455,
+                        580,
+                        800
+                    ],
+                    "max_scrolls": 2
+                }
+            }
+        },
+        "post_delay": 600,
+        "next": [
+            "Shop_Gift_ToWeekly"
+        ]
+    },
+    "Shop_Gift_ToWeekly": {
+        // 「每周礼包」标签（实测 OCR box (470,386,121,36)）。只框标签行。
+        // 同样只点一次 → 由 Shop_Gift_AtWeekly 确认；确认失败直接收尾，不买。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    450,
+                    375,
+                    165,
+                    55
+                ],
+                "expected": [
+                    "每周礼包"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "next": [
+            "Shop_Gift_AtWeekly",
+            "Shop_Gift_Done"
+        ]
+    },
+    "Shop_Gift_AtWeekly": {
+        // 确认「每周礼包」页签已选中：这次高亮块在右半，实测本 ROI 内「RGB 全 ≥100」的像素
+        // 选中 8039 个、未选中 2131 个 —— 同样用 count 4000 卡在中间。
+        "max_hit": 1,
+        "recognition": {
+            "type": "ColorMatch",
+            "param": {
+                "roi": [
+                    405,
+                    355,
+                    215,
+                    80
+                ],
+                "method": 4,
+                "lower": [
+                    100,
+                    100,
+                    100
+                ],
+                "upper": [
+                    255,
+                    255,
+                    255
+                ],
+                "count": 4000
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Shop_Gift_WeeklyBuy"
+        ]
+    },
+    "Shop_Gift_WeeklyBuy": {
+        // 每周礼包页：同一个礼包名在每周礼包里是另一个 SKU，所以单独跑一次勾选购买。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopBuySelected",
+                "custom_action_param": {
+                    "group": "gift",
+                    "roi": [
+                        140,
+                        455,
+                        580,
+                        800
+                    ],
+                    "max_scrolls": 2
+                }
+            }
+        },
+        "post_delay": 600,
+        "next": [
+            "Shop_Gift_Done"
+        ]
+    },
+    "Shop_Gift_Done": {
+        // 折扣礼包段收尾（无 next → 本段结束，交回 SubTask 跑下一段）。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Shop_Badge": {
+        // 征伐印记商店段：主页→商店 → 侧栏滚到底 → 选中「征伐印记商店」 → 切「可兑换」 → 买限购项。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopSelectionGate",
+                "custom_action_param": {
+                    "group": "badge"
+                }
+            }
+        },
+        "timeout": 180000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]Shop_Badge_OpenShop",
+            "[JumpBack]Shop_Badge_SidebarBottom",
+            "[JumpBack]Shop_Badge_PickShop",
+            "Shop_Badge_ToRedeem",
+            "Shop_Badge_Done"
+        ],
+        "on_error": [
+            "Shop_Badge_Done"
+        ]
+    },
+    "Shop_Badge_OpenShop": {
+        // 不在商店里时先从主页进商店。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    10,
+                    410,
+                    140,
+                    110
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500
+    },
+    "Shop_Badge_SidebarBottom": {
+        // 把侧栏滚到底（「征伐印记商店」「公会商店」在第 5、6 位，需要滚到底才可见）。
+        // 门控用页内标题「商店」，动作是侧栏区域内的上滑手势。
+        "max_hit": 4,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    0,
+                    160,
+                    60
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    55,
+                    1120
+                ],
+                "end": [
+                    55,
+                    550
+                ],
+                "duration": 400
+            }
+        },
+        "post_delay": 800
+    },
+    "Shop_Badge_PickShop": {
+        // 选中侧栏「征伐印记商店」（实测 OCR box (5,545,103,35)+(27,579,59,36)）。
+        // ROI 只框侧栏一列，避开内容区的同名分区标题 (360,525)。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    420,
+                    120,
+                    810
+                ],
+                "expected": [
+                    "征伐印记"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target_offset": [
+                    10,
+                    -20,
+                    0,
+                    0
+                ]
+            }
+        },
+        "post_delay": 1500
+    },
+    "Shop_Badge_ToRedeem": {
+        // 「可兑换」标签（实测 OCR box (571,455,74,33)）。ROI 只框标签带，
+        // 折扣礼包页没有这个标签（那里是每日/每周礼包标签），所以不会在别的页误点。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    500,
+                    430,
+                    180,
+                    60
+                ],
+                "expected": [
+                    "可兑换"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "next": [
+            "Shop_Badge_AtRedeem"
+        ]
+    },
+    "Shop_Badge_AtRedeem": {
+        // 确认「可兑换」页签真的选中了。实测选中态是标签左侧菱形里出现一个亮色 ✓，
+        // 未选中时同一个菱形是空心暗蓝（两者只差那 234 个像素），所以用模板匹配而不是数亮像素。
+        // 模板 Shop/RedeemChecked.png 是从实机截图抠的菱形✓（原始 62x58 区域放大后所写）。
+        // 只有本节点命中，Shop_Badge_Buy 才会被走到 —— 没打钩就不点购买，宁可不买也不错买。
+        "max_hit": 1,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    488,
+                    428,
+                    78,
+                    68
+                ],
+                "template": "Shop/RedeemChecked.png",
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Shop_Badge_Buy"
+        ]
+    },
+    "Shop_Badge_Buy": {
+        // 征伐印记商店「可兑换」页：买用户在「征伐印记商店商品」里勾选、且当前有货的商品。
+        // items 省略 = 用商品表里该分组的全部载体节点，勾选状态运行时读回。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopBuySelected",
+                "custom_action_param": {
+                    "group": "badge",
+                    "roi": [
+                        110,
+                        460,
+                        610,
+                        800
+                    ]
+                }
+            }
+        },
+        "post_delay": 600,
+        "next": [
+            "Shop_Badge_Done"
+        ]
+    },
+    "Shop_Badge_Done": {
+        // 征伐印记商店段收尾（无 next → 本段结束）。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Shop_Guild": {
+        // 公会商店段：同征伐印记商店，只是侧栏选「公会商店」、买完就收尾。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopSelectionGate",
+                "custom_action_param": {
+                    "group": "guild"
+                }
+            }
+        },
+        "timeout": 180000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]Shop_Guild_OpenShop",
+            "[JumpBack]Shop_Guild_SidebarBottom",
+            "[JumpBack]Shop_Guild_PickShop",
+            "Shop_Guild_ToRedeem",
+            "Shop_Guild_Done"
+        ],
+        "on_error": [
+            "Shop_Guild_Done"
+        ]
+    },
+    "Shop_Guild_OpenShop": {
+        // 不在商店里时先从主页进商店。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    10,
+                    410,
+                    140,
+                    110
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500
+    },
+    "Shop_Guild_SidebarBottom": {
+        // 把侧栏滚到底，露出「公会商店」。
+        "max_hit": 4,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    0,
+                    160,
+                    60
+                ],
+                "expected": [
+                    "商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    55,
+                    1120
+                ],
+                "end": [
+                    55,
+                    550
+                ],
+                "duration": 400
+            }
+        },
+        "post_delay": 800
+    },
+    "Shop_Guild_PickShop": {
+        // 选中侧栏「公会商店」（实测 OCR box (5,753,103,29)）。
+        // ROI 只框侧栏一列，避开内容区的同名分区标题 (378,526)。
+        // target_offset：实测条目可视范围约 x7..127 / y682..812，条目中心 ≈ (67,747)，
+        // 而 OCR 文本框中心是 (56,767) —— 偏左下、贴着条目下沿。这里向右 +10、向上 -20 把落点
+        // 补回条目中心，避免点到边缘（真机实测过按文本框中心点会跳错商店）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    420,
+                    120,
+                    810
+                ],
+                "expected": [
+                    "公会商店"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target_offset": [
+                    10,
+                    -20,
+                    0,
+                    0
+                ]
+            }
+        },
+        "post_delay": 1500
+    },
+    "Shop_Guild_ToRedeem": {
+        // 「可兑换」标签。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    500,
+                    430,
+                    180,
+                    60
+                ],
+                "expected": [
+                    "可兑换"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "next": [
+            "Shop_Guild_AtRedeem"
+        ]
+    },
+    "Shop_Guild_AtRedeem": {
+        // 确认「可兑换」页签真的选中了。实测选中态是标签左侧菱形里出现一个亮色 ✓，
+        // 未选中时同一个菱形是空心暗蓝（两者只差那 234 个像素），所以用模板匹配而不是数亮像素。
+        // 模板 Shop/RedeemChecked.png 是从实机截图抠的菱形✓（原始 62x58 区域放大后所写）。
+        // 只有本节点命中，Shop_Guild_Buy 才会被走到 —— 没打钩就不点购买，宁可不买也不错买。
+        "max_hit": 1,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    488,
+                    428,
+                    78,
+                    68
+                ],
+                "template": "Shop/RedeemChecked.png",
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Shop_Guild_Buy"
+        ]
+    },
+    "Shop_Guild_Buy": {
+        // 公会商店「可兑换」页：买用户在「公会商店商品」里勾选、且当前有货的商品，每件买到当日限购上限。
+        // 无限制材料（例如幻影之眼 1750）没有限购行，既不在勾选清单里也不会被匹配到。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ShopBuySelected",
+                "custom_action_param": {
+                    "group": "guild",
+                    "roi": [
+                        110,
+                        460,
+                        610,
+                        800
+                    ]
+                }
+            }
+        },
+        "post_delay": 600,
+        "next": [
+            "Shop_Guild_Done"
+        ]
+    },
+    "Shop_Guild_Done": {
+        // 公会商店段收尾（无 next → 本段结束）。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Shop_BackHome": {
+        // 回主页收尾（也是整条任务的最后一段）：先处理公共异常（奖励弹窗等），
+        // 再认主页锚点；没到主页就点左下角返回退一级（商店页的返回是纯图标，OCR 读不到文字，
+        // 只能用固定点；实测该点能退出商店回到主页）。
+        // 刻意不用 Exception_BackToHub：它退不回主页时会落到 Exception_Restart 强杀重启游戏。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Shop_AtHub",
+            "[JumpBack]Shop_Back"
+        ]
+    },
+    "Shop_AtHub": {
+        // 主页锚点：底部导航第一个按钮「惑星之间」（实测 OCR box (15,1236,98,30)）。
+        // 命中即「已经回到主页」→ 交给 Shop_Done 正常收尾。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Shop_Done"
+        ]
+    },
+    "Shop_Back": {
+        // 退一级：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        // max_hit 限制退层级数，退不回主页就交给 Shop_BackHome 超时收尾，绝不无限点。
+        // 本节点无 next，只作为 [JumpBack] 步骤供 Shop_BackHome 复用。
+        "max_hit": 6,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000
+    },
+    "Shop_Done": {
+        // 收尾态（无 next → 整条任务链结束）：停在主页。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

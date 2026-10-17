@@ -1,0 +1,142 @@
+{
+    "LaunchGame_Start": {
+        // 入口：按“已在主界面 → 在登录界面 → 其它（桌面/后台/未启动）”的顺序分流。
+        // next 只放条件节点：无条件 DirectHit 节点会让后面的候选永远不被识别。
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "LaunchGame_AtMainHub",
+            "[JumpBack]LaunchGame_Login",
+            "LaunchGame_Launch"
+        ]
+    },
+    "LaunchGame_AtMainHub": {
+        // 主界面判定：游戏已可操作。no-op 路径不重启、不点击。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    585,
+                    550,
+                    135,
+                    125
+                ],
+                "template": "LaunchGame/MainHubDailyTask.png",
+                "threshold": 0.7
+            }
+        },
+        "timeout": 3000,
+        "next": [
+            "LaunchGame_Done"
+        ]
+    },
+    "LaunchGame_Login": {
+        "max_hit": 6,
+        // 登录界面：点击「点击登录游戏」，点完跳回父节点继续分流。
+        // max_hit 限制重复点击；冷启动登录实测要点 2 次才生效（第一次点完仍短暂停在登录页），
+        // 慢网络下可能需要更多次，3 → 6 留足余量；用尽后交回父节点按超时兜底（有界，不会死循环）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    270,
+                    920,
+                    210,
+                    80
+                ],
+                "expected": ["点击登录游戏"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000
+    },
+    "LaunchGame_Launch": {
+        // 用游戏包名启动。timeout 是启动后等待出现主界面/登录界面的窗口。
+        // 冷启动（异常重启路径）→ 登录 → 主页全链实测约 46s，慢网络下会超过 60s；
+        // 60s 一到期就走 on_error → UpdateError（那是热更新弹窗专用），认不到就判失败、
+        // 游戏被丢在登录页。放宽到 120s 留足冷启动余量。
+        "action": {
+            "type": "StartApp",
+            "param": {
+                "package": "com.Sextante.Micross"
+            }
+        },
+        "post_delay": 3000,
+        "timeout": 120000,
+        "next": [
+            "LaunchGame_AtMainHub",
+            "[JumpBack]LaunchGame_Login"
+        ],
+        // 超时异常流程：启动后长时间既不是主界面也不是登录界面，多半是热更新异常弹窗。
+        "on_error": [
+            "LaunchGame_UpdateError"
+        ]
+    },
+    "LaunchGame_UpdateError": {
+        "max_hit": 2,
+        // 热更新异常弹窗：正文「获取版本文件异常，是否重新获取？」。
+        // max_hit 限制恢复次数，避免弹窗反复出现时无限循环。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    170,
+                    575,
+                    380,
+                    50
+                ],
+                "expected": ["获取版本文件异常"]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "LaunchGame_UpdateErrorConfirm"
+        ]
+    },
+    "LaunchGame_UpdateErrorConfirm": {
+        // 点击弹窗上的「确认」按钮（窄 ROI 限定在弹窗按钮带，避免误点其它界面的同名文字）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    290,
+                    800,
+                    140,
+                    65
+                ],
+                "expected": ["确认"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "next": [
+            "LaunchGame_StopApp"
+        ]
+    },
+    "LaunchGame_StopApp": {
+        // 结束游戏进程，然后重新执行启动游戏工作流。
+        "action": {
+            "type": "StopApp",
+            "param": {
+                "package": "com.Sextante.Micross"
+            }
+        },
+        "post_delay": 3000,
+        "next": [
+            "LaunchGame_Start"
+        ]
+    },
+    "LaunchGame_Done": {
+        // 完成态：游戏已停在主界面，可交给后续任务。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

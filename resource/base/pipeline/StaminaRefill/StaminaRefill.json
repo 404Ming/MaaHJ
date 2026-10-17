@@ -1,0 +1,755 @@
+{
+    "StaminaRefill_Dialog": {
+        // 「补充体力」弹窗存在判定：调用方（玩法挑战门控 / 仅补充体力）用它决定是否进入补体力流程；
+        // 同时被三档「使用」节点当作门控引用（弹窗标题可见才允许点体力药行的按钮）。
+        // 门控稳定性：ROI 覆盖整条标题带并留出余量，阈值下调到 0.2，避免标题描边/弹窗动画导致漏判。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_ResetCount"
+        ]
+    },
+    "StaminaRefill_ResetCount": {
+        // 流程入口先把命中计数清干净：Cycle 的 max_hit 是「一次补体力的消耗上限」，跨任务不能被历史次数吃掉；
+        // 三档「使用」的 max_hit=1 是「本次这一档已经试过」的标记。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ResetCount",
+                "custom_action_param": {
+                    "nodes": [
+                        "StaminaRefill_Cycle",
+                        "StaminaRefill_UseSmall",
+                        "StaminaRefill_UseStandard",
+                        "StaminaRefill_UseLuxury"
+                    ]
+                }
+            }
+        },
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_Cycle"
+        ]
+    },
+    "StaminaRefill_Cycle": {
+        // 补体力循环入口：每次回到这里都重新确认「补充体力」界面还在、体力还没顶到上限，再按优先级挑一档消耗。
+        // 一轮 = 一次「使用」：拉满再减 1，一次吃掉 floor(剩余需求/恢复量) 个，绝不溢出上限；
+        // 一轮之后剩余需求必然小于一个药，下一轮由 QuantityZero 收工返回，所以正常只消耗 1-2 轮。
+        // max_hit=30 是单次补体力的消耗次数上限（跨流程由 ResetCount 复位），只是界面异常时的保险。
+        "max_hit": 30,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_Full",
+            "StaminaRefill_Pick"
+        ]
+    },
+    "StaminaRefill_Full": {
+        // 体力已经顶到游戏上限（顶部数值 999，游戏的数量滑块就是按 999 算的）：不再消耗体力药，直接收工。
+        // 实测顶部体力数值就在这个 ROI 里（如 210），满值时读作 999。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    600,
+                    5,
+                    110,
+                    50
+                ],
+                "expected": [
+                    "^999$"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "StaminaRefill_Back"
+        ]
+    },
+    "StaminaRefill_Pick": {
+        // 严格优先级选档：next 的顺序就是消耗顺序（interface.json 的「体力药消耗优先级」会覆写这个列表）。
+        // timeout=4000 是给「使用」按钮留的渲染时间；三档都挑不出来（都被标记试过 / 都识别不到）才 on_error → 中断报因。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 4000,
+        "next": [
+            "StaminaRefill_UseSmall",
+            "StaminaRefill_UseStandard",
+            "StaminaRefill_UseLuxury"
+        ],
+        "on_error": [
+            "StaminaRefill_NoPotion"
+        ]
+    },
+    "StaminaRefill_UseSmall": {
+        // 小型体力补给（恢复 30 点体力）行的「使用」：窄 ROI 直接识别按钮文字，点击识别到的按钮中心。
+        // And 再要求「补充体力」标题在场：物品详情弹窗打开时标题被盖住，可避免误点到弹窗里的「使用」（实测该场景下
+        // 背景行的「使用」仍能被识别出来）。box_index=1 让点击目标取 OCR 到的按钮框。
+        // 「使田」是该按钮的常见误读（实测置信度 0.845），用 replace 归一化。
+        // max_hit=1：本档这次没补成功就换下一档；成功消耗后由 ResetCountOnUse 复位。
+        "max_hit": 1,
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_Dialog",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    500,
+                                    960,
+                                    110,
+                                    55
+                                ],
+                                "expected": [
+                                    "使用"
+                                ],
+                                "replace": [
+                                    [
+                                        "使田",
+                                        "使用"
+                                    ]
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 5000,
+        "next": [
+            "StaminaRefill_QuantityMax"
+        ],
+        "on_error": [
+            "StaminaRefill_PickRetry"
+        ]
+    },
+    "StaminaRefill_UseStandard": {
+        // 标准体力补给（恢复 90 点体力）行的「使用」。
+        "max_hit": 1,
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_Dialog",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    500,
+                                    815,
+                                    110,
+                                    50
+                                ],
+                                "expected": [
+                                    "使用"
+                                ],
+                                "replace": [
+                                    [
+                                        "使田",
+                                        "使用"
+                                    ]
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 5000,
+        "next": [
+            "StaminaRefill_QuantityMax"
+        ],
+        "on_error": [
+            "StaminaRefill_PickRetry"
+        ]
+    },
+    "StaminaRefill_UseLuxury": {
+        // 豪华体力补给（恢复 150 点体力）行的「使用」。
+        "max_hit": 1,
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_Dialog",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    500,
+                                    650,
+                                    110,
+                                    50
+                                ],
+                                "expected": [
+                                    "使用"
+                                ],
+                                "replace": [
+                                    [
+                                        "使田",
+                                        "使用"
+                                    ]
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 5000,
+        "next": [
+            "StaminaRefill_QuantityMax"
+        ],
+        "on_error": [
+            "StaminaRefill_PickRetry"
+        ]
+    },
+    "StaminaRefill_QuantityMax": {
+        // 「物品详情」的数量滑块拉满：弹窗刚打开时数量在滑块最左侧（实测手柄中心约 (170,714)、
+        // 轨道 x 约 164-544），所以起点压在手柄上、终点越过轨道右端，游戏会把数量拖到最大值
+        // ceil((999-当前体力)/恢复量)（实测 148 体力拉满读作 29，用后体力显示被钳到上限 999）。
+        // 拉满值就是「会溢出上限」的量，统一交给 QuantityMinus 再减 1 得到「一次消耗且不溢出」的数量。
+        // 这一步只拖拽、不读数量；识别不到「物品详情」（详情没打开）才交给 PickRetry 回收。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    135,
+                    200,
+                    70
+                ],
+                "expected": [
+                    "物品详情"
+                ]
+            }
+        },
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    160,
+                    702,
+                    22,
+                    26
+                ],
+                "end": [
+                    620,
+                    701,
+                    40,
+                    26
+                ],
+                "duration": 600
+            }
+        },
+        "post_delay": 400,
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_QuantityMinus"
+        ],
+        "on_error": [
+            "StaminaRefill_PickRetry"
+        ]
+    },
+    "StaminaRefill_QuantityUsable": {
+        // 按过「-」之后数量 >= 1：可以放心点「使用」（消耗量不会溢出上限）。
+        // 数量气泡跟着滑块手柄走，拉满并减 1 后手柄仍在轨道右端一带，气泡实测约在 x 543-587 / y 661-701，
+        // 故只在这个窄 ROI 里读数量。
+        // expected 用 ^[1-9][0-9]*$ 而不是 ^\d+$：项目自带 OCR 对这条窄气泡的单字符会返回
+        // 「整块 ROI」的垃圾读数（实测气泡显示 1 时读到的是 '0'、score 0.40），首字符限定 1-9 才能把
+        // 「没得用」和「能用」分开，避免误点「使用」。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    500,
+                                    655,
+                                    110,
+                                    55
+                                ],
+                                "expected": [
+                                    "^[1-9][0-9]*$"
+                                ],
+                                "threshold": 0.3
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "StaminaRefill_DetailUse"
+        ]
+    },
+    "StaminaRefill_QuantityZero": {
+        // 减 1 之后数量为 0（或数量根本读不出来）：说明剩余需求不足一个药，再消耗只会溢出上限——
+        // 游戏这时会弹「体力超出上限，超出部分将会以邮件形式发送，确认使用」并要求点「确定」，
+        // 溢出部分转成邮件。所以不点「使用」，关掉「物品详情」和「补充体力」弹窗，把控制权还给调用方。
+        // DirectHit 兜底：上面的 QuantityUsable 没命中就一定落到这里，既不原地空转，也不盲点「使用」。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "StaminaRefill_DetailCloseDone"
+        ]
+    },
+    "StaminaRefill_QuantityMinus": {
+        // 数量「-」按钮没有文字，只能用固定点，实测按钮圆盘 x 118-151 / y 698-731，中心约 (134,715)。
+        // And 里再要求「物品详情」在场，避免详情已经关掉时误点到背后的画面。
+        // 点完这一次「-」，数量就是「拉满 - 1」= floor(需求/恢复量)：>= 1 才点「使用」，
+        // 为 0（含数量读不出来）就按「剩余不足一个药」收工返回。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "DirectHit"
+                        }
+                    }
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    118,
+                    698,
+                    33,
+                    33
+                ]
+            }
+        },
+        "post_delay": 300,
+        "next": [
+            "StaminaRefill_QuantityUsable",
+            "StaminaRefill_QuantityZero"
+        ]
+    },
+    "StaminaRefill_DetailUse": {
+        // 物品详情弹窗右下「使用」（实测按钮 x 439-609 / y 801-844，文字「使用」在 x 489-551）：用 And 同时要求
+        // 「物品详情」在场，避免误点到背后的「补充体力」弹窗按钮。
+        // 点完之后要么弹「恭喜获得」（先关它），要么详情还在（关详情）；两者都认不出来说明这一步没走通，
+        // 不再空转，直接走收工路径（关掉详情与弹窗，由调用方重新判断要不要再来一轮）。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    465,
+                                    785,
+                                    130,
+                                    70
+                                ],
+                                "expected": [
+                                    "使用"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 6000,
+        "next": [
+            "StaminaRefill_RewardClose",
+            "StaminaRefill_DetailClose"
+        ],
+        "on_error": [
+            "StaminaRefill_DetailCloseDone"
+        ]
+    },
+    "StaminaRefill_RewardClose": {
+        // 「恭喜获得」提示：点空白区域关闭。空白位置固定，故用行文本做门控后点固定点。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    925,
+                    220,
+                    60
+                ],
+                "expected": [
+                    "点击空白区域关闭"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    330,
+                    1185,
+                    80,
+                    60
+                ]
+            }
+        },
+        "post_delay": 800,
+        "timeout": 6000,
+        "next": [
+            "StaminaRefill_DetailClose"
+        ]
+    },
+    "StaminaRefill_DetailClose": {
+        // 物品详情弹窗左下「关闭」（实测按钮 x 111-281 / y 801-843）：补成功，回循环继续补
+        // （先复位三档「使用」的命中计数）。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    135,
+                                    785,
+                                    130,
+                                    70
+                                ],
+                                "expected": [
+                                    "关闭"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_ResetCountOnUse"
+        ]
+    },
+    "StaminaRefill_ResetCountOnUse": {
+        // 这一档确实消耗成功：复位三档「使用」的命中计数，下一次循环仍按优先级从第一档挑。
+        // Cycle 被 max_hit 跳过（消耗到单次上限）走 on_error → CapReached 判定并报因。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ResetCount",
+                "custom_action_param": {
+                    "nodes": [
+                        "StaminaRefill_UseSmall",
+                        "StaminaRefill_UseStandard",
+                        "StaminaRefill_UseLuxury"
+                    ]
+                }
+            }
+        },
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_Cycle"
+        ],
+        "on_error": [
+            "StaminaRefill_CapReached"
+        ]
+    },
+    "StaminaRefill_DetailCloseEmpty": {
+        // 这一档这次没用成（数量读不出来 / 详情没打开等）：关掉残留的「物品详情」，回选档让下一档顶上。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    135,
+                                    785,
+                                    130,
+                                    70
+                                ],
+                                "expected": [
+                                    "关闭"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_Pick"
+        ]
+    },
+    "StaminaRefill_DetailCloseDone": {
+        // 收工路径（这一步没走通）关闭详情：接着关「补充体力」弹窗，回到调用方。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    135,
+                                    785,
+                                    130,
+                                    70
+                                ],
+                                "expected": [
+                                    "关闭"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_Back"
+        ]
+    },
+    "StaminaRefill_PickRetry": {
+        // 本档这次尝试没走通（详情没打开 / 数量读不出来）的回收口：先把可能残留的「物品详情」关掉，
+        // 再回选档换下一档（本档已被 max_hit 标记为试过，不会被重复选中）。
+        // 详情其实没打开时，等不到「关闭」就由 on_error 直接回选档。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_DetailCloseEmpty"
+        ],
+        "on_error": [
+            "StaminaRefill_Pick"
+        ]
+    },
+    "StaminaRefill_ItemDetail": {
+        // 「物品详情」弹窗存在判定（被上面几个 And 识别引用，实测标题框 x 289-431 / y 149-196）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    135,
+                    200,
+                    70
+                ],
+                "expected": [
+                    "物品详情"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "StaminaRefill_Back": {
+        // 关闭「补充体力」弹窗：标题仍在位（门控，弹窗已关时不误点返回）→ 交给 StaminaRefill_BackClick
+        // 图片匹配左下角返回图标按钮并点其中心。
+        // 没有 next 到弹窗外节点：点完即结束，调用方用 [JumpBack] 接回自己的后续节点；
+        // 调用方若是直接 next 进来（仅补充体力），则本任务到此收尾。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "StaminaRefill_BackClick"
+        ]
+    },
+    "StaminaRefill_BackClick": {
+        // 图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        "max_hit": 3,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000
+    },
+    "StaminaRefill_CapReached": {
+        // 一次流程已消耗到上限（Cycle 的 max_hit）却还没补满：多半是体力上限判定失效（例如顶部数值读不到），
+        // 继续刷下去只会浪费药，中断报因。
+        // 用标题做门控：标题还在说明确实卡住了 → 中断；标题不在（弹窗已经关掉）则本节点不被识别，链结束回调用方。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "StaminaRefillAbort",
+                "custom_action_param": {
+                    "reason": "补充体力失败：单次流程已连续消耗到上限仍未补满体力（可能体力上限判定失效，例如顶部体力数值读取失败），已中断所有运行任务。"
+                }
+            }
+        },
+        "timeout": 3000
+    },
+    "StaminaRefill_NoPotion": {
+        // 三档体力药一个都用不上（识别不到「使用」按钮、数量读不出来、或都被标记试过）：不盲点也不空转，
+        // 中断所有运行任务并在日志里输出原因。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "StaminaRefillAbort",
+                "custom_action_param": {
+                    "reason": "补充体力失败：豪华/标准/小型体力补给均无法使用（库存为 0、体力已达上限，或数量读取失败），无法补满体力，已中断所有运行任务。"
+                }
+            }
+        }
+    }
+}

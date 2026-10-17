@@ -1,0 +1,451 @@
+{
+    "Exception_Start": {
+        // 公共异常处理入口。调用方在自己的监督节点 next 首位挂 "[JumpBack]Exception_Start"。
+        // 识别用 Or 把三个探针的门控「或」起来：没有异常时本节点**不命中**，调用方的 next 列表
+        // 直接往后走（落到正常流程），不会被打断——实测 [JumpBack] 目标若无条件命中（DirectHit），
+        // 它执行完调用方的后续候选就不再执行了，所以入口必须是「有异常才命中」的条件节点。
+        // 命中才执行：由 next 里的探针逐个处理，处理完整条链结束，交回调用方。
+        // 只按「正面识别到异常特征」触发，绝不做「无条件点某个位置」的兜底，避免在正常页面乱点。
+        "recognition": {
+            "type": "Or",
+            "param": {
+                "any_of": [
+                    "Exception_Stamina",
+                    "Exception_RewardClose",
+                    "Exception_ActivityNews",
+                    "Exception_MachineGodChallenge",
+                    "Exception_Disconnected"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Exception_Stamina",
+            "Exception_RewardClose",
+            "Exception_ActivityNews",
+            "Exception_MachineGodChallenge",
+            "Exception_Disconnected"
+        ]
+    },
+    "Exception_Stamina": {
+        // 体力不足（「补充体力」弹窗）= 已知的正常分支，直接复用现有 StaminaRefill 状态机，不重写。
+        // 门控与 StaminaRefill_Dialog / GameplayChallenge_SettleRefillGate 完全一致（放宽 ROI + threshold 0.2）。
+        // 状态机走完（Back 关掉弹窗）后由 [JumpBack] 接回本列表，本节点的链随即结束、交回调用方。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]StaminaRefill_Dialog"
+        ]
+    },
+    "Exception_RewardClose": {
+        // 「恭喜获得」这类遮屏奖励提示：文案「点击空白区域关闭」实测在 ROI [250,925,220,60]
+        // （StaminaRefill_RewardClose / Daily_CloseRewardPopup 同款，OCR 命中 1.000）。
+        // 空白位置固定，故用行文本做门控后点固定点；max_hit 限制同一次运行里的关闭次数。
+        // 关掉后不写 next：让调用方下一轮自己重新判定（调用方的监督节点会反复回到这里）。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    925,
+                    220,
+                    60
+                ],
+                "expected": [
+                    "点击空白区域关闭"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    330,
+                    1185,
+                    80,
+                    60
+                ]
+            }
+        },
+        "post_delay": 800,
+        "timeout": 3000
+    },
+    "Exception_ActivityNews": {
+        "max_hit": 2,
+        // 「活动速递」活动公告弹窗（开屏 / 回主页时弹出）。
+        // 处理：先勾「今日不再提示」，再点左下角返回关掉（按实测要求）。
+        // 门控用弹窗标题「活动速递」：实机实测 OCR box (291,237,136,39) score 1.000。
+        // 标题位置与副本详情页顶部的同名文字不冲突（本 ROI 只框住弹窗标题带）。
+        // max_hit 2：同一轮运行里最多处理两次，勾了「今日不再提示」后本弹窗当天不会再弹。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    200,
+                    260,
+                    80
+                ],
+                "expected": [
+                    "活动速递"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_ActivityNewsNoTip",
+            "Exception_ActivityNewsClose"
+        ]
+    },
+    "Exception_ActivityNewsNoTip": {
+        // 勾选「今日不再提示」：复选框在文案左侧，框本身是图标、OCR 读不到，只能按实测点固定点。
+        // 文案实测 box (321,1108,109,24)；点击点 (302,1120) 实测像素差确认切中复选框
+        // （该 45x45 区域 mean_abs_diff 18.95，整屏仅 0.78），故 target 用紧包复选框的小方框。
+        // 认不到文案就不勾（下一条候选仍会关掉弹窗），绝不盲点。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    1075,
+                    220,
+                    70
+                ],
+                "expected": [
+                    "今日不再提示"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    286,
+                    1100,
+                    32,
+                    40
+                ]
+            }
+        },
+        "post_delay": 800,
+        "timeout": 3000
+    },
+    "Exception_ActivityNewsClose": {
+        // 关掉弹窗：点左下角返回（纯图标，OCR 读不到），与 Exception_Back / StaminaRefill_Back 同一点位。
+        // 实测该点能关掉本弹窗（点完标题「活动速递」消失）。无条件执行：只要走到了这一步，
+        // 说明上一条门控已经确认弹窗在场，认不到复选框也要把弹窗关掉。
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    24,
+                    1180,
+                    132,
+                    64
+                ]
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 3000
+    },
+    "Exception_MachineGodChallenge": {
+        "max_hit": 5,
+        // 「机神降临!!」挑战邀请弹窗（自动探索中遇机神时弹出，实测截图 MuMu-20261017-152817-093.png，
+        // 720x1280 原生）：正文「挑战机神可以获得大量积分，是否前往挑战?」(99,628,509,30) score 0.989。
+        // 处理：点「取消」**不前往**——前往会进入机神战斗/消耗挑战次数，任务流程没有这一步。
+        // 门控用正文尾段「是否前往挑战」：标题「机神降临！」是艺术字带特效不用；
+        // expected 是**子串**匹配（2026-10-17 用本弹窗截图实证：尾段/前段/整行三种都命中同一 box）。
+        // max_hit 5：一次自动探索期间可能遇到多次，留足余量；用尽后交回后面的候选（有界）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    60,
+                    600,
+                    600,
+                    80
+                ],
+                "expected": [
+                    "是否前往挑战"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_MachineGodChallengeCancel"
+        ]
+    },
+    "Exception_MachineGodChallengeCancel": {
+        // 点「取消」：实测 box (177,801,66,35) score 1.000。ROI 只框左键，
+        // 「前往」(477,801,60,36) 在右侧不会误命中。认不到就不点（无 next 交回调用方），绝不盲点「前往」。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    130,
+                    780,
+                    160,
+                    70
+                ],
+                "expected": [
+                    "取消"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000
+    },
+    "Exception_Disconnected": {
+        // 断线 / 网络异常弹窗：正文文案。ROI 取屏幕中部弹窗区，阈值提高减少误判。
+        // ⚠️ 未实机观察到该弹窗，文案与 ROI 仍是推测值，接入前请按实际弹窗校正。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    380,
+                    520,
+                    520
+                ],
+                "expected": [
+                    "重新连接|网络异常|连接失败|与服务器断开|断线重连"
+                ],
+                "threshold": 0.6
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_DisconnectedConfirm"
+        ]
+    },
+    "Exception_DisconnectedConfirm": {
+        // 断线弹窗的确认按钮带（窄 ROI 沿用 LaunchGame_UpdateErrorConfirm 的按钮带，避免误点其它界面同名文字）。
+        // 认不出按钮就不点（下一条候选耗尽 → 交回调用方），绝不盲点。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    290,
+                    800,
+                    140,
+                    65
+                ],
+                "expected": [
+                    "确认|确定|重新连接"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "next": [
+            "Exception_BackToHub"
+        ]
+    },
+    "Exception_BackToHub": {
+        // 回主页重进：点左下角「返回」逐级退出，直到「惑星之间」重新出现。
+        // 放在这里而不是复用 BackToMainHub，是因为 BackToMainHub_Back 靠 OCR「返回|世界」判定，
+        // 而实测副本详情页左下角是**纯图标无文字**（OCR 只能读到 0.13 的垃圾），会漏判。
+        // 这里改成「先认主页锚点、认不到就点固定返回点」：返回点 [24,1180,132,64] 与
+        // StaminaRefill_Back 同一个实测有效的按钮。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_AtHub",
+            "[JumpBack]Exception_Back",
+            "Exception_Restart"
+        ]
+    },
+    "Exception_AtHub": {
+        // 主页锚点：底部导航第一个按钮显示「惑星之间」（实测 box [15,1235,101,30] score 0.980）。
+        // 命中即「已经回到主页」，无 next，链到此结束，交给调用方从主页重新进入自己的流程。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "Exception_Back": {
+        // 退一级：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        // 不再写死坐标：实测该模板在带返回图标的页面得分 0.99+，主页仅 0.25，阈值 0.8 区分度充足，
+        // 换分辨率/机型也不会点错。max_hit 限制退层级数：5 次还退不回主页，
+        // 后面的 Exception_Restart 会接管（兜底重启），不会无限点。
+        "max_hit": 5,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000
+    },
+    "Exception_BackOneLevel": {
+        // 「当前页认不出来 / 监督节点超时」时的**轻量**兜底：识别左下角返回图标按钮
+        // （Daily/BackButton.png），命中就点它退一级，链到此结束、把控制权交回调用方重新判定。
+        // 认不到图标就不点（本节点无 next），由调用方的下一条候选接管。
+        //
+        // 与 Exception_Back 用的是同一张模板和同一个 ROI，但**刻意分成两个节点**，语义不同：
+        //   Exception_Back        是「回主页链」里的一步（Exception_BackToHub 的候选），目标是把角色送回主页；
+        //   Exception_BackOneLevel 只退**一级**，不强迫回主页，更不会像 Exception_BackToHub 那样在
+        //                         退不回主页时落到 Exception_Restart（停应用 + 重新拉起，把游戏整个重启）。
+        // 这也是项目里已经反复出现的偏好：AncientTower / Shop / Mail / Knights / GameplayChallenge
+        // 都宁可直接挂 [JumpBack]Exception_Back 也不挂 Exception_BackToHub，理由同上。
+        //
+        // ⚠️ 绝不要把它加进 Exception_Start 的 any_of：返回图标在**正常子页面上到处都有**，
+        //    一旦进 Or，正常流程每轮都会被它命中并点返回，直接把流程退飞。
+        //    它只允许出现在「异常/超时」路径的 next 里（目前唯一调用方是 Exception_Unknown）。
+        // max_hit 10：它在整轮任务范围内会被反复调用（不同于 Exception_Back 的一次退层循环），
+        //            留得比 5 宽松；用满后交回 Exception_BackToHub 的重路径，避免在
+        //            "返回图标点不动"的弹窗上无限点。
+        "max_hit": 10,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000
+    },
+    "Exception_Restart": {
+        // 兜底（回主页失败 / 重试耗尽）：关闭游戏进程 → 重新执行启动游戏工作流 → 停在主界面，
+        // 然后把控制权交回调用方（此时在主界面，调用方能从主页重新进入自己的流程）。
+        // 复用 LaunchGame 的现有链路：StopApp → LaunchGame_Start（登录 / 热更新异常 / StartApp）。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]LaunchGame_StopApp"
+        ]
+    },
+    "Exception_CloseIcon": {
+        // 「弹窗 / 浮层挡屏」兜底：识别页面上的「X」关闭图标（模板 Exception/CloseButton.png），
+        // 命中就点它中心把弹窗/浮层关掉，链到此结束、把控制权交回调用方重新判定。
+        // 认不到就不点（本节点无 next），由调用方的下一条候选接管（通常是 Exception_BackOneLevel）。
+        //
+        // 模板来自真机截图裁剪（道具详情弹窗，实测 box=(600,420,37,30) score=1.000）。
+        // 不限定 roi：X 会随弹窗位置变化（本例弹窗偏上，X 在 y≈420），固定 ROI 框不住所有弹窗，
+        // 因此按**全屏**匹配；threshold 0.85 用于抑制误命中。
+        //
+        // ⚠️ 模板资产必须来自**真色**来源（adb 原始截图 / MaaFramework 自己写的 on_error 截图）：
+        //    harness 的 t.save_png 会把 BGR 当 RGB 写，存出来的 PNG 文件是 R/B 互换的，
+        //    拿它裁模板会得到颜色不对的资产（曾实测退化成 0.512 的垃圾匹配）。
+        //    运行时数组本身可信：实测与 adb 原始截图逐像素平均差 0.00。
+        // ⚠️ 绝不要把它加进 Exception_Start 的 any_of：X 图标在正常页面上也会出现，
+        //    一进 Or，正常流程每轮都会被它命中并点掉正常界面。
+        //    它只允许出现在「异常/超时」路径的 next 里（目前唯一调用方是 Exception_Unknown）。
+        // max_hit 10：整轮任务范围内最多关 10 个浮层（与 Exception_BackOneLevel 同量级）；
+        //            用满后交回后面的候选（退一级 → 回主页 → 重启），不会无限点。
+        "max_hit": 10,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "Exception/CloseButton.png",
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000
+    },
+    "Exception_Unknown": {
+        // 「卡死 / 未知画面」入口：不靠画面特征识别，而是由调用方用 timeout + on_error 触发——
+        // 监督节点在 timeout 内既没匹配到任何正常候选（卡死 / 当前页认不出来），on_error 就落到这里。
+        // 处理顺序 =「先关浮层 → 再退一级 → 最后回主页」，越来越重：
+        //   Exception_CloseIcon    页面上有「X」关闭图标 → 点掉它关掉弹窗/浮层
+        //                          （**最轻**：不动页面层级，多半只是有残留浮层挡着）；
+        //   Exception_BackOneLevel 认到左下角返回图标 → 退**一级**（误入子页时用）；
+        //   Exception_BackToHub    两个都认不到（满屏错误页、加载页）→ 才走重路径：
+        //                          尽力回主页，回不去（Exception_Back 用满）才 Exception_Restart 重启。
+        // ⚠️ 顺序不能反：Exception_BackToHub 是"无条件 DoNothing + next"，一旦排在前面，
+        //    后面的两个永远不会被走到。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_CloseIcon",
+            "Exception_BackOneLevel",
+            "Exception_BackToHub"
+        ]
+    }
+}

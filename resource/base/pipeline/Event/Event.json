@@ -1,0 +1,8 @@
+{
+    "Event_Start": {
+        // TODO: 待实现活动逻辑。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

@@ -1,0 +1,55 @@
+{
+    "SkipTurnOnly_Start": {
+        // 仅跳过回合：常驻轮询循环，除非用户在客户端手动结束任务，否则永不收尾。
+        // 入口故意不写 recognition —— 协议默认 DirectHit（不做识别、直接执行动作），所以本节点每轮必然命中，
+        // 也就永远不会出现「next 列表全部识别失败 → 超时」这种把任务判死的情况。
+        // 按要求不写 on_error、不写 max_hit、不做任何超时兜底：本任务只做「检测到就点」，唯一的结束方式是用户手动停任务。
+        // 轮询节奏：实测约 0.45s 一轮（父节点 DoNothing 的 pre_delay / post_delay 沿用全局默认 200 + 200ms，
+        // 每轮还会带一次「跳过回合」的 OCR 判定）。全局 Default 的 rate_limit = 1000ms 拦不住这条链路 ——
+        // DirectHit 每轮都在同一轮识别里直接命中，识别循环不会走到需要 rate_limit 兜底的等待分支。
+        // 两次点击之间的间隔由下面 ClickSkipTurn 的 post_delay 保证（≥1s，与战斗模块同一节奏）。
+        // next 的两条候选：先用 [JumpBack] 尝试点一次「跳过回合」（命中就点，点完自动回到本节点继续判定），
+        // 没命中就落回本节点自己 → 继续下一轮轮询。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "[JumpBack]SkipTurnOnly_ClickSkipTurn",
+            "SkipTurnOnly_Start"
+        ]
+    },
+    "SkipTurnOnly_ClickSkipTurn": {
+        // 「跳过回合」按钮：ROI 与文案沿用战斗模块的 GameplayChallenge_BattleTurn（720p 基准）。
+        // ⚠️ 只认「跳过回合」：同一个按钮位置上还会循环出现「等待回合开始」/「回合开始」，这两个绝对不能点
+        //    （点「回合开始」会自己开一回合，把玩家的手动操作带偏），而 OCR 的 expected 是部分匹配，
+        //    一旦写成「回合开始」，「等待回合开始」也会被一起命中。
+        // 点击沿用 BattleTurnClick：识别框中心就是按钮中心，且不逐回合刷屏日志（本任务会长时间常驻运行）。
+        // 本节点没有 next、也不设 timeout —— timeout 只作用于「本节点 next 列表」的识别等待，对没有 next 的节点没有意义；
+        // 点完由父节点的 [JumpBack] 带回 SkipTurnOnly_Start 重新轮询。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    1075,
+                    200,
+                    75
+                ],
+                "expected": [
+                    "跳过回合"
+                ]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleTurnClick"
+            }
+        },
+        // 点完按钮文案会变成「等待回合开始」，等下一回合再判定：与战斗模块相同的 1s 间隔。
+        "post_delay": 1000
+    }
+}

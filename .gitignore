@@ -1,0 +1,25 @@
+# ---- 运行时与前端二进制（随发布包生成，不纳入版本管理）----
+/python/
+/libs/
+/runtimes/
+/MaaAgentBinary/
+/maahj.exe
+/libloader.dll
+/MFAAvalonia.dll
+/MFAAvalonia.deps.json
+/MFAAvalonia.runtimeconfig.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+
+# ---- 日志与调试输出 ----
+*.log
+/agent/debug/
+
+# ---- 系统/编辑器杂项 ----
+.DS_Store
+Thumbs.db
+.vs/
+.idea/

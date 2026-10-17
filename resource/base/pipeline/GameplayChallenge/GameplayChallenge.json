@@ -1,0 +1,815 @@
+{
+    "GameplayChallenge_Start": {
+        // 入口：按 interface.json「挑战次数」打到目标次数，循环体是 GameplayChallenge_Once。
+        // custom_action_param.times 由「挑战次数」选项覆写：1-99999，默认 1 次。
+        // 每次挑战都会真实消耗体力。一次循环体没开始新战斗（多为体力不足已转「补充体力」）会重试，
+        // 连续 3 次都没有新战斗开始（GameplayChallengeLoop 里的 MAX_STUCK_ATTEMPTS）才停止，不再继续消耗。
+        // 副本结算页支持「挑战下一关」时，一次循环体会连着打多局快速再战，
+        // 不再逐局退回副本详情页重选难度 / 助战 / 编队。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "GameplayChallengeLoop",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "GameplayChallenge_Done"
+        ]
+    },
+    "GameplayChallenge_Once": {
+        // 一次挑战链路：定位副本详情页 → 开始挑战 → 助战选择 → 开始战斗 → 战斗模块 → 结算收尾。
+        // 结算页有「挑战下一关」且后面还有次数时，BattleLoop 会直接点它再打一局（不再回到详情页）；
+        // 打满次数 / 副本没有该按钮时，结算页点「确认」回到副本详情页，由 OnceDone 收尾。
+        // 因此第二轮起由 AtDetail 接管，不走列表页。
+        // 本次开始时若「补充体力」界面还开着（上一次补体力没走完 / 结算自动再战被体力拦住），
+        // 先补体力再继续本次，不要空转结束。
+        // next 首位挂公共异常处理：先兜掉遮屏弹窗 / 断线弹窗 / 体力弹窗，没有异常就立刻交回本列表。
+        // ⚠️ 本节点是 DirectHit（没有 recognition）→ **识别永不失败 → 下面的 on_error 永远不会触发**。
+        //    所以别指望"超时 → on_error → Exception_Unknown"这条路能兜住"当前页认不出来"。
+        //    真正生效的兜底是 next 末位 Main 的 [JumpBack]GameplayChallenge_UnknownFallback：
+        //    Main 的三个候选（列表卡片 / 滚动 / 开始挑战）全不命中时，才由它去关 X / 退一级 / 回主页。
+        //    这里保留 on_error 只是形式上留一个入口（将来若给本节点加识别，它会自然生效），
+        //    不要把它当成"卡死会自动回主页"的依据。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 45000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "GameplayChallenge_OnceRefillGate",
+            "GameplayChallenge_AtDetail",
+            "[JumpBack]GameplayChallenge_OpenGameplay",
+            "GameplayChallenge_Main"
+        ],
+        "on_error": [
+            "Exception_Unknown"
+        ]
+    },
+    "GameplayChallenge_OnceRefillGate": {
+        // 每轮开头的补体力门控：体力不足时先把体力补满，补完回到本轮流程（AtDetail → 难度 → 开始挑战）。
+        // 命中条件与 StaminaRefill_Dialog 保持一致；未命中（正常情况）本节点被跳过，Once 继续走 AtDetail。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]StaminaRefill_Dialog",
+            "GameplayChallenge_AtDetail"
+        ]
+    },
+    "GameplayChallenge_AtDetail": {
+        // 已在目标副本详情页（「开始挑战」可见）：直接重选配置难度继续挑战。
+        // 必须先于列表流程判断，否则会在详情页误触发 SwipeList 的滚动。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    990,
+                    340,
+                    160
+                ],
+                "expected": [
+                    "开始挑战"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 4000,
+        "next": [
+            "GameplayChallenge_Difficulty"
+        ]
+    },
+    "GameplayChallenge_UnknownFallback": {
+        // DirectHit 监督节点的「所有候选都不命中」出口（**有界保险丝**）。
+        // 只允许挂在监督节点 next 的**末位**：它是无条件命中的，放前面会把后面所有候选吃掉。
+        // 作用：遇到"当前页认不出来"（弹窗挡屏 / 卡在别的界面）时，把控制权交给异常链
+        // （关 X → 退一级 → 回主页），跑完由 [JumpBack] 回到监督节点重新判定，实现同一次 run_task 内自愈。
+        //
+        // ⚠️ 为什么必须有 max_hit 这道保险丝（不能直接挂 [JumpBack]Exception_Unknown）：
+        //    异常链里 Exception_BackToHub 的首个候选 Exception_AtHub 是"已回到主页"的判定，
+        //    它在主页上会**直接命中且没有 next**，于是链结束 → [JumpBack] 回到监督节点 →
+        //    监督节点仍然认不出主页（列表卡片 / 滚动 / 开始挑战都不在主页上）→ 又触发兜底 → 死循环。
+        //    加上 max_hit 后：兜底跑满 6 次仍未恢复就停止命中，监督节点的 next 正常耗尽、
+        //    本次 run_task 以失败结束，交回循环控制器按既有次数上限判断（不会无限循环）。
+        "max_hit": 6,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_Unknown"
+        ]
+    },
+    "GameplayChallenge_Main": {
+        // 玩法/终末之地列表页监督节点：先找目标副本卡片，找不到就向下滚动一屏再找。
+        // 列表顺序：终末之地(头图) / 古代之塔 / 史莱姆宝库 / 火·元素试炼 / 风·元素试炼 / 水·元素试炼 / 土·元素试炼。
+        // ⚠️ 末尾必须挂 OnceDone：DungeonEntry / SwipeList 都是 [JumpBack]，整条副本链路（直到结算收尾）
+        // 走完后会跳回本节点的 next 继续识别，此时画面是副本详情页，两个列表候选都认不到；
+        // 以前这里没有出口，会等满 4s 超时 → 「bad next」把本次挑战判成失败 → 循环控制器误判重打一次（白扣体力）。
+        // OnceDone 认「开始挑战」（回详情页 = 本次挑战已结束），命中即正常收尾。
+        //
+        // ⚠️ 末尾还必须挂 [JumpBack]GameplayChallenge_UnknownFallback，兜「当前页认不出来」（弹窗挡屏 / 卡在别的页面）：
+        //    本节点是 DirectHit（没有 recognition）→ **识别永不失败 → on_error 永远不会触发**，
+        //    所以"超时交给 Exception_Unknown"这种写法对 DirectHit 监督节点是无效的。
+        //    实机复现：游戏卡在「道具详情」弹窗（右上角有 X）时，上面三个候选全不命中 →
+        //    next 耗尽 → bad next 直接判死本次挑战，异常链（关 X / 退一级 / 回主页）一次都没进，
+        //    循环控制器连试 3 次都是 0/3。
+        //    兜底节点是无条件命中的，只有前面全不命中才走得到；它跑完由 [JumpBack] 回到本节点重新判定，
+        //    所以"关掉弹窗后页面恢复"能在同一次 run_task 内自愈，不用靠上层重试。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 4000,
+        "next": [
+            "[JumpBack]GameplayChallenge_DungeonEntry",
+            "[JumpBack]GameplayChallenge_SwipeList",
+            "GameplayChallenge_OnceDone",
+            "[JumpBack]GameplayChallenge_UnknownFallback"
+        ]
+    },
+    "GameplayChallenge_OpenGameplay": {
+        // 主页底部导航「玩法」（720x1280 下按钮文字中心约 (423,1234)）。执行完由 [JumpBack] 回上层。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    330,
+                    1195,
+                    140,
+                    60
+                ],
+                "expected": [
+                    "玩法"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 2500
+    },
+    "GameplayChallenge_DungeonEntry": {
+        // 目标副本卡片：expected 由「挑战副本」选项覆写（史莱姆宝库 / 火·元素试炼 / 风·元素试炼 / 水·元素试炼 / 土·元素试炼）。
+        // 点击目标为识别到的卡片标题框中心，命中即在卡片内。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    400,
+                    640,
+                    800
+                ],
+                "expected": [
+                    "史莱姆宝库"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3500,
+        "timeout": 2500,
+        "next": [
+            "GameplayChallenge_Difficulty"
+        ]
+    },
+    "GameplayChallenge_SwipeList": {
+        "max_hit": 3,
+        // 列表向下滚动一屏。expected 只认「列表页确实有副本卡片」时才滑，
+        // 避免在副本详情页/战斗页等其它画面按 .* 盲滑（详情页 rewards 文案同样落在该 ROI 内）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    400,
+                    640,
+                    800
+                ],
+                "expected": [
+                    "古代之塔|史莱姆宝库|元素试炼"
+                ]
+            }
+        },
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    360,
+                    1000
+                ],
+                "end": [
+                    360,
+                    520
+                ],
+                "duration": 300
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 2000
+    },
+    "GameplayChallenge_Difficulty": {
+        // 难度页签：普通 / 困难 / 噩梦 / 深渊。expected 由「挑战难度」选项覆写。
+        // 四个页签固定在副本页顶部一条（y≈197），故用一条窄 ROI 覆盖整条页签栏。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    170,
+                    380,
+                    60
+                ],
+                "expected": [
+                    "深渊"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 2000,
+        "next": [
+            "GameplayChallenge_StartChallenge"
+        ]
+    },
+    "GameplayChallenge_StartChallenge": {
+        // 副本详情页底部「开始挑战」（按钮上标注本次体力消耗，如 体力100）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    990,
+                    340,
+                    160
+                ],
+                "expected": [
+                    "开始挑战"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 4000,
+        "timeout": 3000,
+        "next": [
+            "GameplayChallenge_StaminaRefillGate",
+            "GameplayChallenge_PickSupport",
+            "GameplayChallenge_FormationStart"
+        ]
+    },
+    "GameplayChallenge_StaminaRefillGate": {
+        // 体力不足时「开始挑战」会先弹「补充体力」界面（实测：这一步不会走到助战选择）。
+        // 命中说明体力不足：交给 StaminaRefill 状态机按全局配置的体力药优先级消耗体力药；
+        // 状态机走完（Back 收尾）后由 [JumpBack] 接回本列表，重新点「开始挑战」。
+        // 未命中则本节点被跳过，由上层 next 继续走助战选择。
+        // 门控与 StaminaRefill_Dialog 一致（放宽 ROI + threshold 0.2），避免标题描边/弹窗动画漏判。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]StaminaRefill_Dialog",
+            "GameplayChallenge_StartChallenge"
+        ]
+    },
+    "GameplayChallenge_PickSupport": {
+        // 助战选择自定义逻辑（PickSupport）：
+        // 在「助战选择」页按 y 升序挑条目 → 点完**必须**校验已进入编队页（认底部「开始战斗」），
+        // 没进入就换下一条（至多 3 条），全失败返回失败（不再有"认不到就盲点默认位置"的兜底）；
+        // 再在编队页按**主要成员头像上的元素徽章**判定队伍属性（PickSupport._classify_team_element），
+        // 用队伍属性去查全局配置；当前助战的**属性或类型**任一对不上就点「助战」回助战选择页，
+        // 就点「助战」回助战选择页，**按颜色认出该属性对应的元素页签**并直接点它、把列表滚回顶部再找
+        //（PickSupport._locate_element_tab：与认元素徽章同一套取色判据；写死的坐标映射只作兜底）。
+        // 选中态页签的图标被高亮背景压暗、颜色不可靠，改用"它是那个 113px 宽块 + 列表内容确认"定位。
+        // ⚠️ 页签行可横向滚动：一屏只放得下 5 个，第 6 个「暗」要横向滑动标签行才露出（用户实测）。
+        // 只在这一个页签里找；没有"属性+类型"都对的就退让成"同属性、类型不同"；
+        // 全试完仍没有就把页签**恢复成队伍属性**（否则收尾会挑到别的属性的助战）。
+        // 循环至多 3 轮 → 找不到则回到编队页按当前助战继续。
+        // ⚠️ 队伍属性不能用「已选助战的 buff」里的属性代替：那段文案说的是助战自己的属性，
+        // 拿它当队伍属性是闭环，永远纠正不了元素（实测风队配到火助战后再也换不回来）。
+        // 期望值来自下面六个 SupportPref 数据节点（不能写在 custom_action_param：见那里的注释）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    ".*Rank.*",
+                    "助战选择"
+                ]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "PickSupport"
+            }
+        },
+        "timeout": 5000,
+        "next": [
+            "GameplayChallenge_FormationStart"
+        ]
+    },
+    // ---- 助战偏好数据节点（A1 接线）----
+    // 六个属性各一个**纯数据节点**：不被任何 next 引用、永不执行，只作为 interface.json
+    // 「X属性编队助战」选项 override 的落点，PickSupport 用 context.get_node_data() 读取。
+    // select 类型选项按 PI 规范写 recognition.param.expected，因此节点按 OCR 预定义。
+    // ⚠️ 之所以必须"一个属性一个节点"，是因为 PI 客户端把每个选中 case 作为**一条独立的**
+    // pipeline_override 下发，而 MaaFramework 对同一字段是**整体替换**而非深合并：
+    // 六个属性共写同一节点的同一字段时只有最后一条生效（实测 global_option 里排最后的
+    // 「暗属性编队助战」一直覆盖其余五个，火属性助战永远读到 None）。
+    // 默认值与 interface.json 的 default_case 一致（神）。
+    "GameplayChallenge_SupportPref_Fire": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "神"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_SupportPref_Water": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "神"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_SupportPref_Wind": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "神"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_SupportPref_Earth": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "神"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_SupportPref_Light": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "神"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_SupportPref_Dark": {
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "神"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_FormationStart": {
+        // 编队页底部「开始战斗」。点击即真正开始战斗并扣除体力。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    1060,
+                    220,
+                    100
+                ],
+                "expected": [
+                    "开始战斗"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 4000,
+        "timeout": 2500,
+        "next": [
+            "GameplayChallenge_BattleEnter"
+        ]
+    },
+    "GameplayChallenge_BattleEnter": {
+        // 战斗模块入口：每场战斗开始时登记一次（编队页「开始战斗」之后，或结算页「挑战下一关」之后）。
+        // BattleModuleRecord 负责：在有界时间内**确认战斗画面已在场**再累计已开始的战斗次数、
+        // 复位战斗内带 max_hit 节点的命中计数、按剩余次数启停结算页「挑战下一关」。
+        // times 由循环控制器注入。战斗过程中不再读取/打印「战斗设置」与回合数。
+        //
+        // ⚠️ 本节点必须保持 DirectHit（无 recognition）：
+        // 它挂在 FormationStart / ResultNextStage 的 next 上，而 next 链一旦失败会**把整个
+        // BattleLoop 监督链判死** —— 实测给它加 OCR 门控后，"战斗还没开出来"的那一瞬识别失败，
+        // 整轮 run_task 立即结束，结算页再无人处理，游戏自己又开一局又没人登记，最后任务失败。
+        // 因此"战斗是否在场"的判定放在 BattleModuleRecord 里做有界等待（默认 5s），
+        // 锚点识别单独放在下面的 GameplayChallenge_BattlePresence 节点，只给 Python 调用。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleModuleRecord",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 5000,
+        "next": [
+            "GameplayChallenge_BattleLoop"
+        ]
+    },
+    "GameplayChallenge_BattleEnterQuick": {
+        // 「结算过渡屏」之后专用的登记入口（ResultTeamContinue 的 next）：**只看一眼、不等**（wait=0.3）。
+        //
+        // ⚠️ 这里绝不能等：过渡屏点掉之后露出来的多半是**结算页**（「挑战下一关」/「确认」），
+        //    而结算页带着「2S后自动再次挑战」倒计时，必须马上把控制权还给 BattleLoop 去点按钮。
+        //    实机事故（这里用默认 wait=10s 时）：BattleEnter 空等十秒 →
+        //      ① 结算页两个按钮**一次都没被点到**（ResultNextStage / ResultConfirm 进入次数均为 0）；
+        //      ② 游戏自己的 2S 自动再战白开了 3 局（计划 3 次实际打了 6 次，多扣体力）；
+        //      ③ 用户感知就是「战斗胜利页面识别与点击很慢」。
+        //    wait=0.3 的语义：若此刻**已经**在战斗中（例如过渡屏发现得太晚、自动再战已经开了）
+        //    就正常登记，否则立刻放弃登记、交回 BattleLoop。
+        //    真正需要登记的战斗由 FormationStart / ResultNextStage 两条路径上的 BattleEnter 负责
+        //    （那两处战斗一定会加载出来，给足 5s 不会漏计）。
+        // 本节点不配 times：它只做登记前的在场判定，planned 已由 BattleEnter 设置过。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleModuleRecord",
+                "custom_action_param": {
+                    "wait": 0.3
+                }
+            }
+        },
+        "timeout": 5000,
+        "next": [
+            "GameplayChallenge_BattleLoop"
+        ]
+    },
+    "GameplayChallenge_BattlePresence": {
+        // 「战斗画面已在场」的锚点节点：**不被任何 next 引用、永不作为链路节点执行**，
+        // 只由 BattleModuleRecord 通过 context.run_recognition() 轮询调用，
+        // 用来判定"这一刻是不是真的在打"（决定是否把本次 BattleEnter 记成一场战斗）。
+        // 锚点实测：左上「战斗剩余时间 39:5x」与「第N回合」，4 帧战斗屏 box 稳定于
+        // x=537~538, y=38~42, w=175~179, score≥0.95；
+        // 副本详情页 / 编队页 / 助战选择页 / 主页 / 结算页 均 hit=False
+        //（结算过渡屏「点击空白处继续」那一屏也会命中不到 —— 这正是"点击空白处继续 +1 次数"的成因）。
+        // expected 是**全串正则**（参见 PickSupport 的 ".*Rank.*"），OCR 文本带时间后缀且
+        // 回合数带噪声前缀（实测出现过 ※第1回合 / 義第1回合），所以两个模式都必须带 .* 兜住。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    500,
+                    0,
+                    220,
+                    80
+                ],
+                "expected": [
+                    "战斗剩余时间.*",
+                    ".*第.回合.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_BattleLoop": {
+        // 战斗模块监督节点：推进回合 → 结算/胜利页处理 → 关弹窗 → 回到副本详情页即收尾。
+        // 结算（战斗胜利）页处理按顺序：
+        //   ResultNextStage    点「挑战下一关」：本副本支持快速再战且后面还有次数时直接再打一局；
+        //   ResultTeamContinue 点「点击空白处继续」：认出「战斗胜利 + 点击空白处继续」那一屏就立刻点，
+        //                      不点也要等它自己的 2S 自动切页；无论这一屏是我们点「挑战下一关」带来的，
+        //                      还是结算页 4S 倒计时自己又开了一局带来的，都立即点掉继续推进；
+        //   ResultConfirm      点「确认」：打满次数 / 没有该按钮时退回副本详情页收尾。
+        // 注意结算页有「4S后自动再次挑战」倒计时，路径都要抢在倒计时内点掉，
+        // 否则会自己再打一局、白扣一次体力；因此结算阶段用有界的 SettleWait 反复轮询，
+        // 各节点 max_hit 是最后一道保险（每次进战斗由 BattleModuleRecord 复位）。
+        // 结算自动再战被体力拦住时会弹「补充体力」界面（实测：结算后紧跟补充体力界面），
+        // 所以这里也放一道补体力门控，命中先补满体力，再回本监督节点重新判断。
+        // ⚠️ 末位 [JumpBack]GameplayChallenge_UnknownFallback 同样不可去：本节点也是 DirectHit，
+        //    on_error 永不触发；战斗/结算阶段的候选（含靠 max_hit 续命的 SettleWait）全部用尽后，
+        //    必须有一个出口把"认不出来的页面"交给异常链（关 X / 退一级 / 回主页），
+        //    否则会 bad next 直接判死。放在最后一位，正常流程永远走不到它。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "GameplayChallenge_SettleRefillGate",
+            "[JumpBack]GameplayChallenge_BattleTurn",
+            "[JumpBack]GameplayChallenge_ResultNextStage",
+            "[JumpBack]GameplayChallenge_ResultTeamContinue",
+            "[JumpBack]GameplayChallenge_ResultConfirm",
+            "[JumpBack]GameplayChallenge_FriendCancel",
+            "GameplayChallenge_OnceDone",
+            "[JumpBack]GameplayChallenge_SettleWait",
+            "[JumpBack]GameplayChallenge_UnknownFallback"
+        ]
+    },
+    "GameplayChallenge_SettleRefillGate": {
+        // 战斗/结算阶段的补体力门控：命中说明结算自动再战（或其它扣体力动作）被体力拦住、弹出了「补充体力」界面。
+        // 补满体力后回到 BattleLoop 重新判断：已经回到副本详情页由 OnceDone 收尾，
+        // 还停在结算页则由 ResultConfirm / SettleWait 接管，不会卡死也不会白扣一次体力。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    120,
+                    380,
+                    100
+                ],
+                "expected": [
+                    "补充体力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]StaminaRefill_Dialog",
+            "GameplayChallenge_BattleLoop"
+        ]
+    },
+    "GameplayChallenge_BattleTurn": {
+        "max_hit": 80,
+        // 战斗中的回合按钮：只点「跳过回合」。
+        // ⚠️ 「回合开始」绝对不能点（点它会自己开一回合、把自动流程带偏），
+        //    所以 expected 只保留「跳过回合」，不再接受「回合开始」。
+        // 点击由 BattleTurnClick 完成（识别框中心即按钮中心），且不再逐回合打印日志。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    1075,
+                    200,
+                    75
+                ],
+                "expected": [
+                    "跳过回合"
+                ]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleTurnClick"
+            }
+        },
+        "post_delay": 1000,
+        "timeout": 1500
+    },
+    "GameplayChallenge_SettleWait": {
+        "max_hit": 12,
+        // 结算/加载动画等待：等待时间有界（12 次），超过后不再等待，避免整条链路无限挂起。
+        // ⚠️ max_hit 是跨 run_task 累加的：连续挑战时由 BattleModuleRecord 在每场战斗开始时复位，
+        // 否则第二次挑战起本节点会被直接跳过，BattleLoop 的 next 全部落空 → 「bad next」判死整条链路。
+        "pre_delay": 1500,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "GameplayChallenge_ResultNextStage": {
+        "max_hit": 1,
+        // 战斗结算页左下角「挑战下一关」：实际效果就是再重复挑战一次（同一编队直接进下一场战斗），
+        // 连续挑战时用它省掉「副本详情页 → 难度 → 开始挑战 → 助战选择 → 编队 → 开始战斗」整段操作。
+        // 由 BattleModuleRecord 按剩余次数启停：打满「挑战次数」后本节点被 enabled=false 跳过，
+        // 结算页改由 ResultConfirm 点「确认」退回详情页收尾，不会多打一局、多扣一次体力。
+        // max_hit 1：同一场战斗的结算页只点一次，避免点完页面还没切走时重复点击；
+        //          命中计数由 BattleModuleRecord 在每场战斗开始时复位。
+        // ROI 左侧按钮带（实测 OCR 文本 box (96,1193,129,32) score 1.000；按钮 y 约 1175~1235），
+        // 点击目标用识别框中心，即按钮内部。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    60,
+                    1165,
+                    220,
+                    80
+                ],
+                "expected": [
+                    "挑战下一关"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 1200,
+        "next": [
+            "GameplayChallenge_ResultTeamContinue",
+            "GameplayChallenge_BattleEnter"
+        ]
+    },
+    "GameplayChallenge_ResultTeamContinue": {
+        "max_hit": 1,
+        // 再战过渡页（「战斗胜利」+ 队伍等级/上阵/助阵 + 底部「2S后切换页面 点击空白处继续」）：
+        // 整页只是叠在结算页上的编队信息，实测 OCR 文本 box (273,1196,146,26) score 1.000。
+        // 认出这一屏立即点掉（点提示文字所在的空白区），不等它自己的 2S 自动切页。
+        // 两个入口都会走到它：BattleLoop 直接命中（结算页倒计时自动开的那一局也会经过本屏），
+        // 以及 ResultNextStage 点完「挑战下一关」之后的 next。
+        // ⚠️ next 必须是 BattleEnterQuick（只看一眼、不等），**不能用 BattleEnter**：
+        //    这一屏点掉后露出来的是结算页，占着「2S后自动再次挑战」倒计时，
+        //    必须尽快把控制权交回 BattleLoop 去点「挑战下一关」/「确认」；
+        //    用会阻塞的 BattleEnter 会造成「两个按钮一次都没点到 + 游戏白开好几局」
+        //    （详见 BattleEnterQuick 的注释里记的实机事故）。
+        // max_hit 1 + 每场战斗由 BattleModuleRecord 复位：一个再战周期只点一次。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    230,
+                    1180,
+                    260,
+                    60
+                ],
+                "expected": [
+                    "点击空白处继续"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 1200,
+        "next": [
+            "GameplayChallenge_BattleEnterQuick"
+        ]
+    },
+    "GameplayChallenge_ResultConfirm": {
+        "max_hit": 20,
+        // 战斗结算界面的「确认」（左侧是「挑战下一关」/「4S后自动再次挑战」倒计时，右侧是「确认」）。
+        // 退回副本详情页，是打满次数或副本没有「挑战下一关」时的正常收尾路径（OnceDone 接着判定本轮结束）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    495,
+                    1175,
+                    130,
+                    70
+                ],
+                "expected": [
+                    "确认"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 1200
+    },
+    "GameplayChallenge_FriendCancel": {
+        "max_hit": 5,
+        // 副本结束后可能弹出「好友申请」（助战玩家），选「取消」不做社交操作。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    110,
+                    820,
+                    160,
+                    80
+                ],
+                "expected": [
+                    "取消"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 1200
+    },
+    "GameplayChallenge_OnceDone": {
+        // 一次挑战的终点：确认已经回到副本详情页（「开始挑战」重新可见），子任务在此结束。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    990,
+                    340,
+                    160
+                ],
+                "expected": [
+                    "开始挑战"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GameplayChallenge_Done": {
+        // 收尾：按「挑战次数」跑完后把角色送回主页（惑星之间），不再停在副本详情页 / 列表页上。
+        // 判定顺序即返回顺序：
+        //   Exception_AtHub      已在主页（认到「惑星之间」）→ 命中即结束，任务成功收尾；
+        //   BackToMainHub_Back   有返回图标的层级（终末之地列表页等地）→ 图片匹配 Daily/BackButton.png 退一级；
+        //   Exception_Back       纯图标返回按钮的层级（副本详情页等）→ 同样地图片匹配 Daily/BackButton.png 退一级；
+        //                        不再写死坐标：模板在带返回图标的页面得分 0.99+，主页仅 0.25，阈值 0.8 足够区分。
+        // 每点一次都由 [JumpBack] 回到本节点重新判定，直到认到主页锚点。
+        // 末位 GameplayChallenge_Finished 是无条件终点：即使层级没退完也正常收尾。
+        // ⚠️ 刻意不接 Exception_BackToHub：那条链在退不回主页时会落到 Exception_Restart（停应用 + 重新拉起），
+        //    把游戏整个重启掉，收尾阶段不需要这种兜底。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "Exception_AtHub",
+            "[JumpBack]BackToMainHub_Back",
+            "[JumpBack]Exception_Back",
+            "GameplayChallenge_Finished"
+        ]
+    },
+    "GameplayChallenge_Finished": {
+        // 终态：本次玩法挑战结束（已尽力回到主页）。无条件节点，保证任务以成功收尾。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

@@ -1,0 +1,198 @@
+{
+    "Weekly_Start": {
+        // 入口：进周常页 → 页内主循环。next 首位挂条件节点，不直接放无条件 DirectHit 节点。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 20000,
+        "next": [
+            "[JumpBack]Weekly_OpenPage",
+            "Weekly_Main"
+        ]
+    },
+    "Weekly_OpenPage": {
+        // 主页右侧「每日任务」→ 每日任务页底部「周常」页签。两节点都用 [JumpBack] 回到本节点，
+        // 已在该页时对应识别自然落空、由另一节点接上，幂等可重复进入。
+        "next": [
+            "[JumpBack]Weekly_ClickDailyEntry",
+            "[JumpBack]Weekly_ClickWeeklyTab",
+            "Weekly_Main"
+        ]
+    },
+    "Weekly_ClickDailyEntry": {
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    560,
+                    380,
+                    160,
+                    700
+                ],
+                "expected": [
+                    "每日任务"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 2500,
+        "next": [
+            "[JumpBack]Weekly_OpenPage"
+        ]
+    },
+    "Weekly_ClickWeeklyTab": {
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    1080,
+                    200,
+                    120
+                ],
+                "expected": [
+                    "周常"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 2500,
+        "next": [
+            "[JumpBack]Weekly_OpenPage"
+        ]
+    },
+    "Weekly_Main": {
+        // 页内主循环：①先领完可领奖励 ②奖杯≥100 则收尾 ③否则派发未完成任务（子流程结束后回主页、由 Weekly_Dispatch 的 next 重新进周常页）。
+        // next 首位挂公共异常处理；Weekly_Finish 作为兜底收尾（Weekly_Dispatch 自禁用后落在这里）。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]Weekly_ClaimRewards",
+            "Weekly_TrophyEnough",
+            "Weekly_Dispatch",
+            "Weekly_Finish"
+        ]
+    },
+    "Weekly_ClaimRewards": {
+        "max_hit": 12,
+        // 领取任务奖励：只点右侧操作列的「领取」（不碰「前往」），order_by+index 取最上面一条。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    460,
+                    470,
+                    260,
+                    620
+                ],
+                "expected": [
+                    "领取"
+                ],
+                "order_by": "Vertical",
+                "index": 0
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 2000
+    },
+    "Weekly_TrophyEnough": {
+        // 奖杯判定：左上角奖杯数 ≥ 100 时命中（与每日任务同位置，用正则表达「大于等于100」）。
+        // 命中即收尾返回主页；未命中继续派发任务。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    400,
+                    90,
+                    55
+                ],
+                "expected": [
+                    "[1-9]\\d\\d"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Weekly_Finish"
+        ]
+    },
+    "Weekly_Dispatch": {
+        // 派发未完成任务：WeeklyDispatch 自定义动作扫描列表里带「前往」的已知任务，
+        // 回到主页后按其类型调用玩法挑战（风/火/水/土→对应元素试炼、体力→史莱姆宝库）或祈愿（抽卡）子流程。
+        // 子流程结束于主页，本节点 next=Weekly_OpenPage 重新进周常页循环。
+        // 没有已知可完成任务时，动作内会自禁用本节点避免死循环，届时回到 Weekly_Main 后落到 Weekly_Finish。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "WeeklyDispatch",
+                "custom_action_param": {
+                    "pool": "友情祈愿"
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "Weekly_OpenPage"
+        ]
+    },
+    "Weekly_Finish": {
+        // 收尾：回到主页（可能在周常页或已在家），任务成功结束。
+        // 注意末尾用「前向」BackToMainHub_Start 收口，不能用 [JumpBack]，否则会原地死循环。
+        "next": [
+            "Weekly_ReturnHome"
+        ]
+    },
+    "Weekly_ReturnHome": {
+        // 通用回主页：左下角图标返回按钮（与每日任务页同一个控件），点到「惑星之间」为止。
+        // 末位必须是前向 BackToMainHub_Start（不是 [JumpBack]），调用栈才能正常退栈、任务结束。
+        "next": [
+            "[JumpBack]Weekly_Back",
+            "BackToMainHub_Start"
+        ]
+    },
+    "Weekly_Back": {
+        "max_hit": 6,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 2500,
+        "next": [
+            "[JumpBack]Weekly_ReturnHome"
+        ]
+    }
+}

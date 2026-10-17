@@ -1,0 +1,212 @@
+{
+    "Mail_Start": {
+        // 邮件领取·状态机（监督节点）。候选顺序 =「界面状态越靠后越优先」：
+        //   公共异常（含「恭喜获得」弹窗）→ 邮件页「没有邮件」→ 邮件页「领取全部」→ 菜单页「邮件」→ 主页「菜单」
+        // 完整链路（实机走通）：
+        //   主页底部导航「菜单」→ 菜单页「邮件」→ 邮件页「领取全部」
+        //   → 弹「恭喜获得」，由公共异常点空白关闭 → 左下角返回 ×2（邮件页→菜单页→主页）→ 结束
+        // 每个步骤执行完都用 plain next 回到本节点重新判定；没有任何 jumpback 帧残留。
+        // timeout 当「卡死窗口」：这么久都没匹配到任何正常状态（未知弹窗/异常画面/领取次数用满），
+        // on_error 先回主页收尾，绝不去触发会重启游戏的公共兜底。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 15000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Mail_Empty",
+            "Mail_CollectAll",
+            "Mail_EnterMail",
+            "Mail_OpenMenu"
+        ],
+        "on_error": [
+            "Mail_BackHome"
+        ]
+    },
+    "Mail_OpenMenu": {
+        "max_hit": 2,
+        // 主页底部导航最后一项「菜单」（实测 OCR box (633,1227,62,37) score 0.999）。
+        // ⚠️ 实测它位于**右下角**（导航条最右），不是左下角；这里按 OCR 识别框中心点击，
+        // 不写死坐标，位置随分辨率也不会错。ROI 只框右侧导航区，避开左边的「骑士团」。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": [
+            "Mail_Start"
+        ]
+    },
+    "Mail_EnterMail": {
+        "max_hit": 2,
+        // 菜单页「邮件」图标（实测 OCR box (193,834,56,37) score 1.000，点该框中心实测能进邮件页）。
+        // ROI 只框这一枚图标的文字标签，同页还有 日常/公告/祈愿/编队/任务 等同列文字不会被误命中。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    140,
+                    820,
+                    130,
+                    60
+                ],
+                "expected": [
+                    "邮件"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": [
+            "Mail_Start"
+        ]
+    },
+    "Mail_Empty": {
+        "max_hit": 1,
+        // 「没有邮件了」门控：邮件页左上角计数「当前邮件:0/9999」（实测 box (20,94,211,36) score 0.999）。
+        // expected 是部分匹配，写「当前邮件:0」即可命中「当前邮件:0/9999」；有邮件时是
+        // 「当前邮件:11/9999」，不会命中本节点，于是落到下一条候选去点「领取全部」。
+        // max_hit 1：邮箱空了就直接回主页收尾，不会反复判定。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    70,
+                    320,
+                    70
+                ],
+                "expected": [
+                    "当前邮件:0"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Mail_BackHome"
+        ]
+    },
+    "Mail_CollectAll": {
+        "max_hit": 3,
+        // 邮件页底部「领取全部」（实测 OCR box (298,1127,123,38) score 1.000）。
+        // 点击落点取识别框中心，不写死坐标；ROI 只框按钮本身，避开上方的邮件列表与右侧翻页箭头。
+        // 点完会弹「恭喜获得」（文案「点击空白区域关闭」），由公共 Exception_RewardClose 关掉，
+        // 关掉后回到 Mail_Start：此时计数已归 0，Mail_Empty 命中 → 回主页。
+        // max_hit 3 = 一局最多领 3 轮（正常情况下 1 轮就清空），用满则 Mail_Start 超时 → on_error 回主页收尾。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    1100,
+                    240,
+                    80
+                ],
+                "expected": [
+                    "领取全部"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000,
+        "next": [
+            "Mail_Start"
+        ]
+    },
+    "Mail_BackHome": {
+        // 回主页收尾（也是卡住时的兜底）：先处理公共异常（奖励弹窗等），
+        // 再认主页锚点；没到主页就点左下角返回退一级（实测邮件页→菜单页→主页要退两级）。
+        // 刻意不用 Exception_BackToHub：它退不回主页时会落到 Exception_Restart 强杀重启游戏。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "Mail_AtHub",
+            "[JumpBack]Mail_Back"
+        ]
+    },
+    "Mail_AtHub": {
+        // 主页锚点：底部导航第一个按钮「惑星之间」（实测 OCR box (13,1235,103,33) score 0.999）。
+        // 命中即「已经回到主页」→ 交给 Mail_Done 正常收尾。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Mail_Done"
+        ]
+    },
+    "Mail_Back": {
+        "max_hit": 8,
+        // 退一级：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        // 比写死坐标更稳：换分辨率/机型也不点错。
+        // max_hit 限制退层级数，退不回主页就交给调用方收尾，绝不无限点。
+        // 本节点无 next，只作为 [JumpBack] 步骤供 Mail_BackHome 复用。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000
+    },
+    "Mail_Done": {
+        // 收尾态（无 next → 整条任务链结束）：停在主页。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

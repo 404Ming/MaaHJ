@@ -1,0 +1,35 @@
+{
+    "Flag_BattleUltimate": {
+        // 本文件只放「全局任务配置」的开关载体节点，不再是可执行任务：
+        // 这些选项由 interface.json 的 global_option 在客户端的全局任务配置区渲染，
+        // 并作为 pipeline_override 作用于所有任务（无论选了哪个资源包/控制器）。
+        // 全局任务配置「战斗设置 · 奥义释放」的开关载体，由 switch 选项覆写 enabled。
+        // 注：战斗模块已不再读取/打印这四项（日志只输出完成战斗的次数），目前它们是纯载体，
+        // 后续若要把「奥义释放/自动/2倍速」真正作用到战斗里，再由战斗模块读取并驱动对应点击。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Flag_BattleSkipTurn": {
+        // 全局任务配置「战斗设置 · 跳过回合」的开关载体。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Flag_BattleAuto": {
+        // 全局任务配置「战斗设置 · 是否自动」的开关载体。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Flag_BattleSpeed2x": {
+        // 全局任务配置「战斗设置 · 战斗2倍速」的开关载体。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

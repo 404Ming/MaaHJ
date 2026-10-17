@@ -1,0 +1,313 @@
+{
+    "AncientTower_Start": {
+        // 古代之塔·挂机收获状态机（监督节点）。候选顺序 =「界面状态越靠后越优先」：
+        //   公共异常 → 「快速收获」确认弹窗 → 面板「快速收获」（次数≠0）
+        //   → 面板「收获」（次数=0）→ 塔页点矿车 → 主页点古代之塔
+        // 完整链路（实机走通）：
+        //   主页「古代之塔」→ 古代之塔页 → 右下角矿车 → 挂机设置面板
+        //   → 剩余收获次数≠0 时点「快速收获」→ 弹「快速收获挂机奖励」确认框 → 点框内右侧「快速收获」确认
+        //   → 弹「恭喜获得」，点空白关闭 → 重复上面两步直到次数为 0
+        //   → 点右侧「收获」→ 再关一次「恭喜获得」→ 左下角返回 ×2（面板→塔页→主页）→ 结束
+        // 每个步骤执行完都用 plain next 回到本节点重新判定；没有任何 jumpback 帧残留。
+        // timeout 当「卡死窗口」：这么久都没匹配到任何正常状态（未知弹窗/异常画面），
+        // on_error 先回主页收尾，绝不去触发会重启游戏的公共兜底。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 30000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "AncientTower_QuickHarvestConfirm",
+            "AncientTower_HarvestLeft",
+            "AncientTower_HarvestDone",
+            "AncientTower_OpenPanel",
+            "AncientTower_EnterTower"
+        ],
+        "on_error": [
+            "AncientTower_BackHome"
+        ]
+    },
+    "AncientTower_EnterTower": {
+        "max_hit": 2,
+        // 主页右侧功能列「古代之塔」（实测 OCR box (636,740,73,24)，同列还有 每日任务/终末之战/战斗列表）。
+        // ROI 只框这一条：既不碰上下相邻项，也避开塔页顶部「古代宝库之塔·烈火之塔」
+        // （那个文案不含「古代之塔」，不会被本节点误命中）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    560,
+                    700,
+                    160,
+                    90
+                ],
+                "expected": [
+                    "古代之塔"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_OpenPanel": {
+        "max_hit": 2,
+        // 古代之塔页：点右下角矿车打开「挂机设置」。
+        // 门控用页面标题「古代宝库之塔…」（实测 OCR box (190,58,327,43)）——面板打开后
+        // 该标题不再出现在画面上，所以不会在面板已打开时重复点矿车。
+        // 矿车是纯图标、OCR 读不到，只能用实测固定点：实测点 (620,1140) 能打开挂机设置面板，
+        // 故 target 用紧包该点的小方框（同页右下角另有一个倒计时文字 (535,1208,117,31)）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    150,
+                    30,
+                    420,
+                    90
+                ],
+                "expected": [
+                    ".*古代宝库之塔.*"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    600,
+                    1120,
+                    40,
+                    40
+                ]
+            }
+        },
+        "post_delay": 2500,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_HarvestLeft": {
+        "max_hit": 30,
+        // 「还有收获次数」门控：认「剩余收获次数:N」且首位数字非 0（实测文案 box (68,925,160,27)）。
+        // expected 是部分匹配（实机验证：写「剩余收获次数」能命中「剩余收获次数:0」），
+        // 所以这里用「剩余收获次数:[1-9]」就能表达「次数≠0」——实测次数为 0 时本节点不命中。
+        // 确认弹窗里虽然也有「剩余收获次数:1」，但实测在 y756 一带，不在本 ROI（y900+）内，不会误命中。
+        // max_hit 30 = 一局最多快速收获 30 次（次数为 0 后本节点自动不再命中）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    900,
+                    240,
+                    60
+                ],
+                "expected": [
+                    "剩余收获次数:[1-9]"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "AncientTower_QuickHarvest"
+        ]
+    },
+    "AncientTower_QuickHarvest": {
+        "max_hit": 30,
+        // 挂机设置面板左下「快速收获」（实测 OCR box (103,965,104,33)）。
+        // 点击落点取识别框中心，不写死坐标；ROI 只框左侧按钮，避开中间的「结束挂机」
+        // 和右侧的「收获」（「收获」二字是「快速收获」的子串，靠 ROI 分开，不能只靠文案）。
+        // 点完会弹「快速收获挂机奖励」确认框，由 AncientTower_QuickHarvestConfirm 接手确认。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    60,
+                    930,
+                    200,
+                    80
+                ],
+                "expected": [
+                    "快速收获"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_QuickHarvestConfirm": {
+        "max_hit": 30,
+        // 点面板「快速收获」后弹出的确认框（标题「快速收获」+ 正文「快速收获挂机奖励」），
+        // 实测框内两个按钮：左侧「取消」(172,801,59,37)，右侧「快速收获」(463,802,108,38)。
+        // 只认右侧那个确认按钮：ROI [430,780,140,70] 精确框住它，左边的「取消」在框外，绝不误点；
+        // 弹窗打开时面板被遮罩盖住（实测 OCR 读不到面板上的 快速收获 / 剩余收获次数），不会误触发别的节点。
+        // 点完弹「恭喜获得」，由公共 Exception_RewardClose 关掉，再回到 Start 重新判定次数。
+        // 排在 Start 候选里 AncientTower_HarvestLeft 之前：即便两层文字同时被读到，也优先把确认框点掉。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    430,
+                    780,
+                    140,
+                    70
+                ],
+                "expected": [
+                    "快速收获"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_HarvestDone": {
+        "max_hit": 1,
+        // 「收获次数已为 0」门控：到此可以收最后那笔挂机收益了。
+        // max_hit 1：收完这一次就交给 AncientTower_Collect，之后本节点不再命中，
+        // 避免「收获」被反复点（实测第二次点会提示「暂无奖励领取」）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    900,
+                    240,
+                    60
+                ],
+                "expected": [
+                    "剩余收获次数:0"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Collect"
+        ]
+    },
+    "AncientTower_Collect": {
+        "max_hit": 1,
+        // 挂机设置面板右侧「收获」（实测 OCR box (534,964,59,37)）。
+        // 点完会弹出「恭喜获得」（文案「点击空白区域关闭」，由公共 Exception_RewardClose 关掉），
+        // 所以 next 直接交给回主页链——那条链首位挂了 Exception_Start，会先关掉奖励弹窗。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    930,
+                    180,
+                    80
+                ],
+                "expected": [
+                    "收获"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_BackHome"
+        ]
+    },
+    "AncientTower_BackHome": {
+        // 回主页收尾（也是卡住时的兜底）：先处理公共异常（奖励弹窗等），
+        // 再认主页锚点；没到主页就点左下角返回退一级（实测面板→塔页→主页要退两级）。
+        // 刻意不用 Exception_BackToHub：它退不回主页时会落到 Exception_Restart 强杀重启游戏。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "AncientTower_AtHub",
+            "[JumpBack]AncientTower_Back"
+        ]
+    },
+    "AncientTower_AtHub": {
+        // 主页锚点：底部导航第一个按钮「惑星之间」（实测 OCR box (12,1232,104,36)）。
+        // 命中即「已经回到主页」→ 交给 AncientTower_Done 正常收尾。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": [
+                    "惑星之间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Done"
+        ]
+    },
+    "AncientTower_Back": {
+        "max_hit": 8,
+        // 退一级：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
+        // 比写死坐标更稳：换分辨率/机型也不点错。
+        // max_hit 限制退层级数，退不回主页就交给调用方收尾，绝不无限点。
+        // 本节点无 next，只作为 [JumpBack] 步骤供 AncientTower_BackHome 复用。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000
+    },
+    "AncientTower_Done": {
+        // 收尾态（无 next → 整条任务链结束）：停在主页。
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

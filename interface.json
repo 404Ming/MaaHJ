@@ -1,0 +1,1674 @@
+{
+    "interface_version": 2,
+    "name": "maahj",
+    "label": "MaaHJ",
+    "title": "哼唧小助手",
+    "icon": "resource/base/image/icon.png",
+    "version": "v0.1.2",
+    "description": "MaaHJ MaaFW project",
+    "controller": [
+        {
+            "name": "Adb",
+            "label": "ADB",
+            "type": "Adb",
+            "display_short_side": 720
+        }
+    ],
+    "resource": [
+        {
+            "name": "base",
+            "label": "Base",
+            "path": [
+                "./resource/base"
+            ]
+        }
+    ],
+    "agent": [
+        {
+            "child_exec": "python/python.exe",
+            "child_args": [
+                "-u",
+                "agent/main.py"
+            ]
+        }
+    ],
+    "option": {
+        "挑战副本": {
+            "type": "select",
+            "label": "挑战副本",
+            "description": "选择「玩法 → 终末之地」中要挑战的副本。",
+            "cases": [
+                {
+                    "name": "史莱姆宝库",
+                    "pipeline_override": {
+                        "GameplayChallenge_DungeonEntry": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "史莱姆宝库"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "火元素试炼",
+                    "pipeline_override": {
+                        "GameplayChallenge_DungeonEntry": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "火·元素试炼"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "风元素试炼",
+                    "pipeline_override": {
+                        "GameplayChallenge_DungeonEntry": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "风·元素试炼"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "水元素试炼",
+                    "pipeline_override": {
+                        "GameplayChallenge_DungeonEntry": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "水·元素试炼"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "土元素试炼",
+                    "pipeline_override": {
+                        "GameplayChallenge_DungeonEntry": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "土·元素试炼"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "史莱姆宝库"
+        },
+        "挑战难度": {
+            "type": "select",
+            "label": "挑战难度",
+            "description": "选择副本难度。难度越高体力消耗与奖励越高。",
+            "cases": [
+                {
+                    "name": "普通",
+                    "pipeline_override": {
+                        "GameplayChallenge_Difficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "普通"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "困难",
+                    "pipeline_override": {
+                        "GameplayChallenge_Difficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "困难"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "噩梦",
+                    "pipeline_override": {
+                        "GameplayChallenge_Difficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "噩梦"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "深渊",
+                    "pipeline_override": {
+                        "GameplayChallenge_Difficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "深渊"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "深渊"
+        },
+        "挑战次数": {
+            "type": "input",
+            "label": "挑战次数",
+            "inputs": [
+                {
+                    "name": "挑战次数",
+                    "label": "挑战次数",
+                    "description": "可输入 1-99999 之间的整数；每一次都会真实消耗该副本的体力。",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^([1-9]\\d{0,4})$",
+                    "pattern_msg": "请输入 1-99999 之间的整数"
+                }
+            ],
+            "pipeline_override": {
+                "GameplayChallenge_Start": {
+                    "action": {
+                        "param": {
+                            "custom_action_param": {
+                                "times": "{挑战次数}"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "水属性编队助战": {
+            "type": "select",
+            "label": "水属性编队助战",
+            "description": "水属性编队挑战时，助战效果类型优先选择 神 / 魔 / 属攻（按队伍属性自动匹配）。",
+            "cases": [
+                {
+                    "name": "神",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Water": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "魔",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Water": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "魔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "属攻",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Water": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "属攻"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "神"
+        },
+        "火属性编队助战": {
+            "type": "select",
+            "label": "火属性编队助战",
+            "description": "火属性编队挑战时，助战效果类型优先选择 神 / 魔 / 属攻（按队伍属性自动匹配）。",
+            "cases": [
+                {
+                    "name": "神",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Fire": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "魔",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Fire": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "魔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "属攻",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Fire": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "属攻"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "神"
+        },
+        "风属性编队助战": {
+            "type": "select",
+            "label": "风属性编队助战",
+            "description": "风属性编队挑战时，助战效果类型优先选择 神 / 魔 / 属攻（按队伍属性自动匹配）。",
+            "cases": [
+                {
+                    "name": "神",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Wind": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "魔",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Wind": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "魔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "属攻",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Wind": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "属攻"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "神"
+        },
+        "土属性编队助战": {
+            "type": "select",
+            "label": "土属性编队助战",
+            "description": "土属性编队挑战时，助战效果类型优先选择 神 / 魔 / 属攻（按队伍属性自动匹配）。",
+            "cases": [
+                {
+                    "name": "神",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Earth": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "魔",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Earth": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "魔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "属攻",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Earth": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "属攻"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "神"
+        },
+        "光属性编队助战": {
+            "type": "select",
+            "label": "光属性编队助战",
+            "description": "光属性编队挑战时，助战效果类型优先选择 神 / 魔 / 属攻（按队伍属性自动匹配）。",
+            "cases": [
+                {
+                    "name": "神",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Light": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "魔",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Light": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "魔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "属攻",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Light": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "属攻"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "神"
+        },
+        "暗属性编队助战": {
+            "type": "select",
+            "label": "暗属性编队助战",
+            "description": "暗属性编队挑战时，助战效果类型优先选择 神 / 魔 / 属攻（按队伍属性自动匹配）。",
+            "cases": [
+                {
+                    "name": "神",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Dark": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "魔",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Dark": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "魔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "属攻",
+                    "pipeline_override": {
+                        "GameplayChallenge_SupportPref_Dark": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "属攻"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "神"
+        },
+        "祈愿池": {
+            "type": "select",
+            "label": "祈愿池",
+            "description": "周常任务「抽卡10次」要抽的祈愿池。",
+            "cases": [
+                {
+                    "name": "冒险祈愿",
+                    "pipeline_override": {
+                        "Weekly_Dispatch": {
+                            "action": {
+                                "param": {
+                                    "custom_action_param": {
+                                        "pool": "冒险祈愿"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "友情祈愿",
+                    "pipeline_override": {
+                        "Weekly_Dispatch": {
+                            "action": {
+                                "param": {
+                                    "custom_action_param": {
+                                        "pool": "友情祈愿"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "友情祈愿"
+        },
+        "奥义释放": {
+            "type": "switch",
+            "label": "奥义释放",
+            "description": "战斗模块是否释放奥义，由全局任务配置「战斗设置」统一设置。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Flag_BattleUltimate": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Flag_BattleUltimate": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "跳过回合": {
+            "type": "switch",
+            "label": "跳过回合",
+            "description": "战斗模块是否跳过回合，由全局任务配置「战斗设置」统一设置。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Flag_BattleSkipTurn": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Flag_BattleSkipTurn": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "是否自动": {
+            "type": "switch",
+            "label": "是否自动",
+            "description": "战斗模块是否自动战斗，由全局任务配置「战斗设置」统一设置。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Flag_BattleAuto": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Flag_BattleAuto": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "战斗2倍速": {
+            "type": "switch",
+            "label": "战斗2倍速",
+            "description": "战斗模块是否使用 2 倍速，由全局任务配置「战斗设置」统一设置。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Flag_BattleSpeed2x": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Flag_BattleSpeed2x": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "每日捐献": {
+            "type": "switch",
+            "label": "每日捐献",
+            "description": "骑士团每日捐献：进入骑士团 → 成员页 → 打开捐献弹窗，点左侧「金币捐献」10 次后关闭弹窗返回主页。关闭则整段跳过。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Knights_DailyDonateGate": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Knights_DailyDonateGate": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "公会挖宝": {
+            "type": "switch",
+            "label": "公会挖宝",
+            "description": "骑士团公会挖宝：进入骑士团 → 公会挖宝 → 挑战 → 编队面板开始战斗，战斗结束后领奖并返回主页。战斗不消耗体力（挖宝挑战次数为 ∞）。关闭则整段跳过。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Knights_TreasureGate": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Knights_TreasureGate": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "体力药消耗优先级": {
+            "type": "select",
+            "label": "体力药消耗优先级",
+            "description": "体力不足弹出「补充体力」界面时优先消耗的体力药，直接决定 StaminaRefill 流程的选档顺序（豪华 150 / 标准 90 / 小型 30）。严格按所选顺序消耗：该档还有库存就一直用它，不会为了「不溢出」而降级换小档；单次消耗数量取数量滑块拉满后再按一次「-」，即一次能消耗且不溢出的最大数量，补满体力（上限 999）后结束。",
+            "cases": [
+                {
+                    "name": "豪华",
+                    "pipeline_override": {
+                        "StaminaRefill_Pick": {
+                            "next": [
+                                "StaminaRefill_UseLuxury",
+                                "StaminaRefill_UseStandard",
+                                "StaminaRefill_UseSmall"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "标准",
+                    "pipeline_override": {
+                        "StaminaRefill_Pick": {
+                            "next": [
+                                "StaminaRefill_UseStandard",
+                                "StaminaRefill_UseLuxury",
+                                "StaminaRefill_UseSmall"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "小型",
+                    "pipeline_override": {
+                        "StaminaRefill_Pick": {
+                            "next": [
+                                "StaminaRefill_UseSmall",
+                                "StaminaRefill_UseStandard",
+                                "StaminaRefill_UseLuxury"
+                            ]
+                        }
+                    }
+                }
+            ],
+            "default_case": "小型"
+        },
+        "折扣礼包商品": {
+            "type": "checkbox",
+            "label": "折扣礼包商品",
+            "description": "折扣礼包页要购买的礼包，买满当日/当周限购次数。折扣礼包的商品会随活动轮换：清单里当前不在售的那几项会被静默跳过，不会误买别的东西。一件都不勾选则整个折扣礼包段不做任何点击。",
+            "cases": [
+                {
+                    "name": "每日福利",
+                    "pipeline_override": {
+                        "ShopPick_Gift_DailyWelfare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "每周福利",
+                    "pipeline_override": {
+                        "ShopPick_Gift_WeeklyWelfare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "冒险祈愿超值礼包",
+                    "pipeline_override": {
+                        "ShopPick_Gift_AdventureWishValue": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "公会商店商品": {
+            "type": "checkbox",
+            "label": "公会商店商品",
+            "description": "公会商店「可兑换」里要购买的商品，每件买到它自己的当日/当周限购上限（卡片上「每日:N/M」「每周:N/M」的 M）。星间通信书有多个不同价格的 SKU，购买时不区分价格，视为同一种商品，各 SKU 会分别买到自己的上限。买满限购的会从列表消失、售罄的会沉到列表最下面，任务在每次购买后都会重新扫描。",
+            "cases": [
+                {
+                    "name": "星间通信书",
+                    "pipeline_override": {
+                        "ShopPick_Guild_StarBook": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "深渊之瞳",
+                    "pipeline_override": {
+                        "ShopPick_Guild_AbyssEye": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "深渊之爪",
+                    "pipeline_override": {
+                        "ShopPick_Guild_AbyssClaw": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神之羽",
+                    "pipeline_override": {
+                        "ShopPick_Guild_ValkyrieFeather": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "星灵秘药",
+                    "pipeline_override": {
+                        "ShopPick_Guild_StarSpiritElixir": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "神灵秘药",
+                    "pipeline_override": {
+                        "ShopPick_Guild_DivineElixir": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "征伐印记商店商品": {
+            "type": "checkbox",
+            "label": "征伐印记商店商品",
+            "description": "征伐印记商店「可兑换」里要购买的商品，每件买到当周限购上限（卡片上「每周:N/M」的 M）。名称被游戏截断的商品按卡片上真实显示的前缀匹配，括号里是价格。买满限购的商品会从列表消失、售罄的会沉到列表最下面，任务在每次购买后都会重新扫描。",
+            "cases": [
+                {
+                    "name": "始源巨兽刻印金宝箱（2000）",
+                    "label": "始源巨兽刻印金宝箱",
+                    "pipeline_override": {
+                        "ShopPick_Badge_001": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼刻印金宝箱（2000）",
+                    "label": "神祝之翼刻印金宝箱",
+                    "pipeline_override": {
+                        "ShopPick_Badge_002": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物刻印金箱（2000）",
+                    "label": "烛之造物刻印金箱",
+                    "pipeline_override": {
+                        "ShopPick_Badge_003": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "一串香蕉（2000）",
+                    "label": "一串香蕉",
+                    "pipeline_override": {
+                        "ShopPick_Badge_004": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "熊牙短匕（2000）",
+                    "label": "熊牙短匕",
+                    "pipeline_override": {
+                        "ShopPick_Badge_005": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "缠绕重锤（2000）",
+                    "label": "缠绕重锤",
+                    "pipeline_override": {
+                        "ShopPick_Badge_006": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "野猪王之剑（2000）",
+                    "label": "野猪王之剑",
+                    "pipeline_override": {
+                        "ShopPick_Badge_007": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "深邃大洋之光（4000）",
+                    "label": "深邃大洋之光",
+                    "pipeline_override": {
+                        "ShopPick_Badge_008": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "深邃大洋之弦（4000）",
+                    "label": "深邃大洋之弦",
+                    "pipeline_override": {
+                        "ShopPick_Badge_009": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "深邃大洋之芒（4000）",
+                    "label": "深邃大洋之芒",
+                    "pipeline_override": {
+                        "ShopPick_Badge_010": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "祝福生命之棱（4000）",
+                    "label": "祝福生命之棱",
+                    "pipeline_override": {
+                        "ShopPick_Badge_011": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "祝福生命之种（4000）",
+                    "label": "祝福生命之种",
+                    "pipeline_override": {
+                        "ShopPick_Badge_012": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "祝福生命之芽（4000）",
+                    "label": "祝福生命之芽",
+                    "pipeline_override": {
+                        "ShopPick_Badge_013": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "远古熔岩之握（4000）",
+                    "label": "远古熔岩之握",
+                    "pipeline_override": {
+                        "ShopPick_Badge_014": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "远古熔岩之牙（4000）",
+                    "label": "远古熔岩之牙",
+                    "pipeline_override": {
+                        "ShopPick_Badge_015": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "远古熔岩之触（4000）",
+                    "label": "远古熔岩之触",
+                    "pipeline_override": {
+                        "ShopPick_Badge_016": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "长空祈愿之力（4000）",
+                    "label": "长空祈愿之力",
+                    "pipeline_override": {
+                        "ShopPick_Badge_017": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "长空祈愿之终（4000）",
+                    "label": "长空祈愿之终",
+                    "pipeline_override": {
+                        "ShopPick_Badge_018": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "长空祈愿之视（4000）",
+                    "label": "长空祈愿之视",
+                    "pipeline_override": {
+                        "ShopPick_Badge_019": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "星间通信书（2000）",
+                    "label": "星间通信书",
+                    "pipeline_override": {
+                        "ShopPick_Badge_020": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "天使之羽（500）",
+                    "label": "天使之羽",
+                    "pipeline_override": {
+                        "ShopPick_Badge_021": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "虚界之镰（500）",
+                    "label": "虚界之镰",
+                    "pipeline_override": {
+                        "ShopPick_Badge_022": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "幻影之眼（700）",
+                    "label": "幻影之眼",
+                    "pipeline_override": {
+                        "ShopPick_Badge_023": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "伊南娜的心核（240）",
+                    "label": "伊南娜的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_024": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "伊南娜的神魄（240）",
+                    "label": "伊南娜的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_025": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "俄耳浦斯的神魄（240）",
+                    "label": "俄耳浦斯的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_026": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "俄里翁的心核（240）",
+                    "label": "俄里翁的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_027": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "俄里翁的神魄（240）",
+                    "label": "俄里翁的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_028": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "卡律布狄斯的心核（240）",
+                    "label": "卡律布狄斯的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_029": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "卡律布狄斯的神魄（240）",
+                    "label": "卡律布狄斯的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_030": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "和音傀的心核（240）",
+                    "label": "和音傀的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_031": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "和音傀的神魄（240）",
+                    "label": "和音傀的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_032": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母的神魄（240）",
+                    "label": "孕星烛母的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_033": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "断裁偶的心核（240）",
+                    "label": "断裁偶的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_034": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "断裁偶的神魄（240）",
+                    "label": "断裁偶的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_035": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "斯文托维特的神魄（240）",
+                    "label": "斯文托维特的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_036": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "柏勒洛丰的心核（240）",
+                    "label": "柏勒洛丰的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_037": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "柏勒洛丰的神魄（240）",
+                    "label": "柏勒洛丰的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_038": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欧若拉的神魄（240）",
+                    "label": "欧若拉的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_039": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欲望泉的心核（240）",
+                    "label": "欲望泉的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_040": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欲望泉的神魄（240）",
+                    "label": "欲望泉的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_041": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "法厄同的心核（240）",
+                    "label": "法厄同的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_042": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "法厄同的神魄（240）",
+                    "label": "法厄同的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_043": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "潘塔菲卡的心核（240）",
+                    "label": "潘塔菲卡的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_044": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "潘塔菲卡的神魄（240）",
+                    "label": "潘塔菲卡的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_045": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "焚尽花的心核（240）",
+                    "label": "焚尽花的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_046": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "焚尽花的神魄（240）",
+                    "label": "焚尽花的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_047": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "珀尔修斯的心核（240）",
+                    "label": "珀尔修斯的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_048": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "珀尔修斯的神魄（240）",
+                    "label": "珀尔修斯的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_049": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "米劳罗的心核（240）",
+                    "label": "米劳罗的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_050": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "米劳罗的神魄（240）",
+                    "label": "米劳罗的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_051": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "苏尔特尔的心核（240）",
+                    "label": "苏尔特尔的心核",
+                    "pipeline_override": {
+                        "ShopPick_Badge_052": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "苏尔特尔的神魄（240）",
+                    "label": "苏尔特尔的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_053": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "赫拉斯瓦尔格的神魄（240）",
+                    "label": "赫拉斯瓦尔格的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_054": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "迪亚波罗的神魄（240）",
+                    "label": "迪亚波罗的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_055": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "阿格莱亚的神魄（240）",
+                    "label": "阿格莱亚的神魄",
+                    "pipeline_override": {
+                        "ShopPick_Badge_056": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "伊南娜的残魂（120）",
+                    "label": "伊南娜的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_057": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "俄耳浦斯的残魂（120）",
+                    "label": "俄耳浦斯的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_058": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "俄里翁的残魂（120）",
+                    "label": "俄里翁的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_059": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "卡律布狄斯的残魂（120）",
+                    "label": "卡律布狄斯的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_060": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "和音傀的残魂（120）",
+                    "label": "和音傀的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_061": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母的残魂（120）",
+                    "label": "孕星烛母的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_062": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "断裁偶的残魂（120）",
+                    "label": "断裁偶的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_063": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "斯文托维特的残魂（120）",
+                    "label": "斯文托维特的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_064": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "柏勒洛丰的残魂（120）",
+                    "label": "柏勒洛丰的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_065": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欧若拉的残魂（120）",
+                    "label": "欧若拉的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_066": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欲望泉的残魂（120）",
+                    "label": "欲望泉的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_067": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "法厄同的残魂（120）",
+                    "label": "法厄同的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_068": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "潘塔菲卡的残魂（120）",
+                    "label": "潘塔菲卡的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_069": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "焚尽花的残魂（120）",
+                    "label": "焚尽花的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_070": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "珀尔修斯的残魂（120）",
+                    "label": "珀尔修斯的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_071": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "米劳罗的残魂（120）",
+                    "label": "米劳罗的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_072": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "苏尔特尔的残魂（120）",
+                    "label": "苏尔特尔的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_073": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "赫拉斯瓦尔格的残魂（120）",
+                    "label": "赫拉斯瓦尔格的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_074": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "迪亚波罗的残魂（120）",
+                    "label": "迪亚波罗的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_075": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "阿格莱亚的残魂（120）",
+                    "label": "阿格莱亚的残魂",
+                    "pipeline_override": {
+                        "ShopPick_Badge_076": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "初级讨伐证明（40）",
+                    "label": "初级讨伐证明",
+                    "pipeline_override": {
+                        "ShopPick_Badge_077": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "高级讨伐证明（120）",
+                    "label": "高级讨伐证明",
+                    "pipeline_override": {
+                        "ShopPick_Badge_078": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "传奇讨伐证明（360）",
+                    "label": "传奇讨伐证明",
+                    "pipeline_override": {
+                        "ShopPick_Badge_079": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "自动探索领取": {
+            "type": "switch",
+            "label": "自动探索领取",
+            "description": "机神降临任务内是否自动探索并领取奖励。关闭则跳过这一段。（该任务流程待实现，开关已接线）",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_AutoExploreClaim": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_AutoExploreClaim": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "挑战元素自律机械": {
+            "type": "switch",
+            "label": "挑战元素自律机械",
+            "description": "机神降临任务内是否挑战「元素自律机械」。关闭则跳过这一段（不消耗挑战次数）。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "自律机械挑战次数": {
+            "type": "input",
+            "label": "自律机械挑战次数",
+            "inputs": [
+                {
+                    "name": "自律机械挑战次数",
+                    "label": "自律机械挑战次数",
+                    "description": "挑战「元素自律机械」的次数，可输入 1-99999 之间的整数；实际能不能打满由剩余次数决定（认到「次数：N」不足时自动停止并在日志说明）。",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^([1-9]\\d{0,4})$",
+                    "pattern_msg": "请输入 1-99999 之间的整数"
+                }
+            ],
+            "pipeline_override": {
+                "MachineGodDescent_ElementMachine": {
+                    "action": {
+                        "param": {
+                            "custom_action_param": {
+                                "times": "{自律机械挑战次数}"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "挑战机神降临": {
+            "type": "switch",
+            "label": "挑战机神降临",
+            "description": "机神降临任务内是否挑战「机神降临」（多人房间战，一场最长约39分钟）。关闭则跳过这一段（不消耗挑战次数）。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_GodChallenge": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_GodChallenge": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
+        },
+        "机神降临挑战次数": {
+            "type": "input",
+            "label": "机神降临挑战次数",
+            "inputs": [
+                {
+                    "name": "机神降临挑战次数",
+                    "label": "机神降临挑战次数",
+                    "description": "挑战「机神降临」的次数，可输入 1-99999 之间的整数；实际能不能打满由剩余次数决定（认到「剩余挑战次数：N」不足时自动停止并在日志说明）。",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^([1-9]\\d{0,4})$",
+                    "pattern_msg": "请输入 1-99999 之间的整数"
+                }
+            ],
+            "pipeline_override": {
+                "MachineGodDescent_GodChallenge": {
+                    "action": {
+                        "param": {
+                            "custom_action_param": {
+                                "times": "{机神降临挑战次数}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "global_option": [
+        "奥义释放",
+        "跳过回合",
+        "是否自动",
+        "战斗2倍速",
+        "体力药消耗优先级",
+        "水属性编队助战",
+        "火属性编队助战",
+        "风属性编队助战",
+        "土属性编队助战",
+        "光属性编队助战",
+        "暗属性编队助战"
+    ],
+    "import": [
+        "./tasks/guide.json",
+        "./tasks/main.json"
+    ]
+}
