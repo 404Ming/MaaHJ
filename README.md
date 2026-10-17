@@ -35,7 +35,7 @@ MaaHJ 的意思是 Maa 哼唧
 
 本仓库只包含**源码与资源**（`agent/`、`resource/`、`tasks/`、`config/`、`interface.json` 等），运行时二进制（Python 运行时、`libs/`、`runtimes/`、`MFAAvalonia` 前端）不纳入版本管理。
 
-- **直接使用**：下载构建好的发布包（`package-mfaa`），解压后运行 `maahj.exe`，无需安装 Python。
+- **直接使用**：下载构建好的发布包，解压后运行 `maahj.exe`，无需安装 Python。
 - **从源码运行**：见下方 [从源码运行](#从源码运行)。
 - **前端**：图形界面基于 [MFAAvalonia](https://github.com/SweetSmellFox/MFAAvalonia)，配置由 `interface.json` 描述。
 
@@ -47,38 +47,17 @@ MaaHJ 的意思是 Maa 哼唧
 
 **第一步 · 模拟器**
 
-- 推荐 **MuMu 模拟器 12**，显示设置为 `手机版 720×1280`，开启 ADB 调试
-- 多开时各实例的 ADB 端口不同（0 号默认 `16384`，1 号 `16416`，依次递增），在界面中分别填写端口即可
+- 推荐 **MuMu 模拟器 12**，显示设置为 `手机版 720×1280 320DPI`，开启 ADB 调试
 
 **第二步 · 游戏内设置**
 
-自动化流程依赖游戏内的基础设置，请按下表调整（均在默认基础上修改，截图对应游戏 `v3.3.0_20261016`）：
-
-| 分类 | 设置项 | 推荐值 | 说明 |
-| --- | --- | --- | --- |
-| 基础 | 摇杆设置 | 固定摇杆 | 摇杆位置固定后，移动与转向的点击坐标更稳定 |
-| 基础 | 自动挂机精力不足是否自动吃精力药 | 不自动吃药 | 体力补充统一交给「体力药消耗优先级」处理，避免与流程抢药 |
-| 基础 | 自动挂机死亡是否自动暂离 | 不自动暂离 | 避免战斗中途被系统带离当前场景，打断后续识别 |
-| 基础 | 自动挂机是否自动跳过回合 | 不自动跳过 | 是否跳过回合由全局选项「跳过回合」控制 |
-| 战斗设置 | 自动战斗模式 | 完全自动 | 与全局选项「是否自动」配合，减少一次手动点击 |
-| 战斗设置 | 自动战斗开关 | 默认开启 | 同上 |
-| 战斗设置 | 战报显示 | 关闭显示 | 战报弹层会遮挡后续识别区域 |
-| 战斗设置 | 技能释放速度 | x2 | 缩短单场战斗耗时（与全局选项「战斗 2 倍速」互不影响） |
-| 战斗设置 | 怪物立绘动画 | 默认关闭 | 减少画面抖动，提高模板匹配与 OCR 命中率 |
-| 战斗设置 | 角色战斗语音 | 关闭 | 对识别无影响，仅省资源 |
-| 画面 | 屏幕方向 | 竖屏 | Pipeline 的 ROI 基于竖屏 720 短边标定 |
-| 画面 | 画面品质 | 低 | 渲染负担小、截图更稳定；配置富余可选中 |
-| 画面 | 帧率上限 | 60 | 与截图节奏匹配即可，过高无收益 |
-| 画面 | 同屏人数 | 不显示 | 避免其他玩家遮挡识别区域 |
-
-<details>
-<summary>设置截图（基础 / 战斗设置 / 画面）</summary>
+自动化流程依赖游戏内的基础设置：
+设置截图（基础 / 画面 / 战斗设置）
 
 <img alt="设置-基础" src="./docs/images/settings-basic.png" width="300px"/>
-<img alt="战斗设置" src="./docs/images/settings-battle.png" width="300px"/>
 <img alt="设置-画面" src="./docs/images/settings-display.png" width="300px"/>
+<img alt="战斗设置" src="./docs/images/settings-battle.png" width="300px"/>
 
-</details>
 
 **第三步 · 选择任务**
 
@@ -172,7 +151,7 @@ create-maa-project --update python-deps
 
 - 自动化框架：[MaaFramework](https://github.com/MaaXYZ/MaaFramework)
 - 图形界面：[MFAAvalonia](https://github.com/SweetSmellFox/MFAAvalonia)
-- 项目脚手架：[create-maa-project](https://github.com/MaaXYZ/create-maa-project)
+- 项目脚手架：[create-maa-project](https://github.com/Windsland52/create-maa-project)
 - 公共资源与 OCR 模型：[MaaCommonAssets](https://github.com/MaaXYZ/MaaCommonAssets)
 
 ### 工具链
