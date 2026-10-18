@@ -5,6 +5,7 @@
     "title": "哼唧小助手",
     "icon": "resource/base/image/icon.png",
     "version": "v0.1.3",
+    "github": "https://github.com/404Ming/MaaHJ",
     "description": "MaaHJ MaaFW project",
     "controller": [
         {
