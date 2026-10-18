@@ -168,7 +168,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 2500
     },
     "GameplayChallenge_DungeonEntry": {
@@ -191,7 +191,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3500,
+        "post_delay": 500,
         "timeout": 2500,
         "next": [
             "GameplayChallenge_Difficulty"
@@ -229,7 +229,7 @@
                 "duration": 300
             }
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 2000
     },
     "GameplayChallenge_Difficulty": {
@@ -252,7 +252,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
             "GameplayChallenge_StartChallenge"
@@ -277,7 +277,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 4000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "GameplayChallenge_StaminaRefillGate",
@@ -457,7 +457,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 4000,
+        "post_delay": 500,
         "timeout": 2500,
         "next": [
             "GameplayChallenge_BattleEnter"
@@ -581,8 +581,12 @@
     },
     "GameplayChallenge_SettleRefillGate": {
         // 战斗/结算阶段的补体力门控：命中说明结算自动再战（或其它扣体力动作）被体力拦住、弹出了「补充体力」界面。
-        // 补满体力后回到 BattleLoop 重新判断：已经回到副本详情页由 OnceDone 收尾，
-        // 还停在结算页则由 ResultConfirm / SettleWait 接管，不会卡死也不会白扣一次体力。
+        // 两个入口都会走到它：BattleLoop 的 next 首位，以及 ResultNextStage（点完「挑战下一关」）的 next 首位。
+        // 后者是必须的——点「挑战下一关」被体力拦住时，BattleEnter 会白等 5s 战斗在场判定才交回，
+        // 把这个门控放前面可以立刻接住弹窗直接进补体力流程。
+        // 补满体力后先经 SettleRetryReset 复位结算页命中计数，再回到 BattleLoop 重新判断：
+        // 已经回到副本详情页由 OnceDone 收尾；还停在结算页则重新由 ResultNextStage 点「挑战下一关」，
+        // 不会卡死、不会白扣一次体力，也不会把没打的第 2 次挑战错收成「确认」。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -604,6 +608,33 @@
         "timeout": 3000,
         "next": [
             "[JumpBack]StaminaRefill_Dialog",
+            "GameplayChallenge_SettleRetryReset",
+            "GameplayChallenge_BattleLoop"
+        ]
+    },
+    "GameplayChallenge_SettleRetryReset": {
+        // 补完体力回到结算页后的一次性复位：把结算页各按钮节点的 max_hit 命中计数清零。
+        // 为什么必须有：点「挑战下一关」时体力不足会先弹「补充体力」而不是开战，那次点击已经把
+        // ResultNextStage 的 max_hit=1 用掉；补完体力回来它就会被跳过 → 落到 ResultConfirm 点「确认」
+        // 退回详情页 → 挑战次数打不满（实机 bug：第 2 次挑战永远打不出来）。
+        // 只复位结算页这几个节点：战斗内节点（BattleTurn / SettleWait）由 BattleModuleRecord 在
+        // 每场战斗开始时统一复位，不要在这里重复处理。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ResetCount",
+                "custom_action_param": {
+                    "nodes": [
+                        "GameplayChallenge_ResultNextStage",
+                        "GameplayChallenge_ResultTeamContinue",
+                        "GameplayChallenge_ResultConfirm",
+                        "GameplayChallenge_SettleWait"
+                    ]
+                }
+            }
+        },
+        "timeout": 3000,
+        "next": [
             "GameplayChallenge_BattleLoop"
         ]
     },
@@ -633,7 +664,7 @@
                 "custom_action": "BattleTurnClick"
             }
         },
-        "post_delay": 1000,
+        "post_delay": 500,
         "timeout": 1500
     },
     "GameplayChallenge_SettleWait": {
@@ -655,6 +686,11 @@
         // 结算页改由 ResultConfirm 点「确认」退回详情页收尾，不会多打一局、多扣一次体力。
         // max_hit 1：同一场战斗的结算页只点一次，避免点完页面还没切走时重复点击；
         //          命中计数由 BattleModuleRecord 在每场战斗开始时复位。
+        //          ⚠️ 点「挑战下一关」时**体力不足会先弹「补充体力」而不是开战**，这次点击已经把
+        //          max_hit 用掉；补完体力回到结算页时本节点会被直接跳过 → 落到 ResultConfirm 点「确认」
+        //          → 挑战次数打不满（实测 bug）。所以 next 首位挂 SettleRefillGate 先兜掉「补充体力」
+        //          （否则要白等 BattleEnter 的 5s 战斗在场判定），并在补体力收尾处用
+        //          GameplayChallenge_SettleRetryReset 复位结算页各节点的命中计数。
         // ROI 左侧按钮带（实测 OCR 文本 box (96,1193,129,32) score 1.000；按钮 y 约 1175~1235），
         // 点击目标用识别框中心，即按钮内部。
         "recognition": {
@@ -674,9 +710,10 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1200,
+        "post_delay": 500,
         "timeout": 1200,
         "next": [
+            "GameplayChallenge_SettleRefillGate",
             "GameplayChallenge_ResultTeamContinue",
             "GameplayChallenge_BattleEnter"
         ]
@@ -711,7 +748,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
+        "post_delay": 500,
         "timeout": 1200,
         "next": [
             "GameplayChallenge_BattleEnterQuick"
@@ -738,7 +775,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 1200
     },
     "GameplayChallenge_FriendCancel": {
@@ -761,7 +798,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 1200
     },
     "GameplayChallenge_OnceDone": {

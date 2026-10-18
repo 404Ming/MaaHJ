@@ -620,6 +620,9 @@ _GOD_ROOM_START_TEXT = "开始战斗"
 # 开始战斗确认框「确定」按钮（实测 box (477,834,76,46)）
 _GOD_START_CONFIRM_ROI = (430, 800, 160, 80)
 _GOD_START_CONFIRM_TEXT = "确定"
+# 编队页「确定」→ 房间页「开始战斗」的过渡等待（用户要求加的超时判断点）：
+# 超过这个秒数还看不到「开始战斗」，就当过渡失败，交给公共异常处理流程（Exception_Start）。
+_GOD_FORMATION_TO_ROOM_TIMEOUT = 15.0
 # 失败兜底（时间到/全员阵亡）：「作战失败」标题（实测 box (240,190,239,71)）+
 # 底部「撤退」按钮（实测 box (337,1202,61,31)，在 _MGD_BOTTOM_ROI 内）。
 _GOD_LOSE_RESULT_ROI = (150, 150, 420, 140)
@@ -675,9 +678,16 @@ def _create_god_room(context: Context) -> bool:
     time.sleep(_CLICK_SETTLE)
 
     # 4. 房间页 → 开始战斗
-    start = _wait_for(context, _GOD_ROOM_START_ROI, _GOD_ROOM_START_TEXT, 15)
+    #    这里是「助战选择完成、点编队『确定』→ 下一个节点」之间的**超时判断点**（用户要求）：
+    #    超过 _GOD_FORMATION_TO_ROOM_TIMEOUT 还看不到房间页（卡编队页 / 弹窗盖住 / 断线 / 加载不出来），
+    #    就进**公共异常处理流程** Exception_Start，再返回 False 结束本次（不盲点「开始战斗」）。
+    start = _wait_for(context, _GOD_ROOM_START_ROI, _GOD_ROOM_START_TEXT, _GOD_FORMATION_TO_ROOM_TIMEOUT)
     if start is None:
-        logger.warning("机神降临：没等到房间页「开始战斗」。")
+        logger.error(
+            "机神降临：点编队「确定」后 {} 秒内没进到房间页「开始战斗」，进入公共异常处理流程。",
+            _GOD_FORMATION_TO_ROOM_TIMEOUT,
+        )
+        context.run_task("Exception_Start")
         return False
     _click_box(context, start)
     time.sleep(_CLICK_SETTLE)
@@ -713,7 +723,11 @@ def _run_god_battle(context: Context) -> str:
     if entry is None:
         logger.warning("机神降临：认不到机神挑战入口（挑战/挑战机神/机神降临横幅）。")
         return "fail"
-    logger.info("机神降临：点机神挑战入口「{}」({} 路径)。", entry_kind, "直接进" if entry_kind == "direct" else "邀请框")
+    logger.info(
+        "机神降临：点机神挑战入口「{}」({} 路径)。",
+        entry_kind,
+        "直接进" if entry_kind == "direct" else "邀请框",
+    )
     _click_box(context, entry)
     time.sleep(_CLICK_SETTLE)
 

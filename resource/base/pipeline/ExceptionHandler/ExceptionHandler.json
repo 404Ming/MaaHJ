@@ -12,6 +12,7 @@
                 "any_of": [
                     "Exception_Stamina",
                     "Exception_RewardClose",
+                    "Exception_FriendRequest",
                     "Exception_ActivityNews",
                     "Exception_MachineGodChallenge",
                     "Exception_Disconnected"
@@ -25,6 +26,7 @@
         "next": [
             "Exception_Stamina",
             "Exception_RewardClose",
+            "Exception_FriendRequest",
             "Exception_ActivityNews",
             "Exception_MachineGodChallenge",
             "Exception_Disconnected"
@@ -87,6 +89,61 @@
                     60
                 ]
             }
+        },
+        "post_delay": 500,
+        "timeout": 3000
+    },
+    "Exception_FriendRequest": {
+        // 战斗结算后弹出的「好友申请」框（用了陌生玩家助战就会弹）：
+        //   标题「好友申请」(289,361,141,43)、正文「是否向该名玩家发送好友申请」(176,742,366,32) score 1.000、
+        //   左侧「取消」(157,849,70,40)、右侧「发送申请」。
+        // 处理：点「取消」——**绝不**给别的玩家发好友申请（社交副作用，玩家没授权）。
+        // 门控用正文里的「发送好友申请」：整句唯一，不会误伤其它弹窗上同样位置的「取消」
+        // （例如「快速收获」确认框的取消就在 (172,801,59,37)，只看按钮文案会点错）。
+        // max_hit 5：一次战斗只弹一次，留几次余量给连续挑战；用尽后交回调用方的其它候选。
+        "max_hit": 5,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    150,
+                    720,
+                    440,
+                    80
+                ],
+                "expected": [
+                    "发送好友申请"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_FriendRequestCancel"
+        ]
+    },
+    "Exception_FriendRequestCancel": {
+        // 点弹窗左侧「取消」（实测 box (157,849,70,40) score 1.000）。
+        // ROI 只框左键：右侧「发送申请」在 (430,860) 一带，框外，绝不误点。
+        // 认不到「取消」就不点（无 next，交回调用方），绝不盲点。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    120,
+                    815,
+                    160,
+                    80
+                ],
+                "expected": [
+                    "取消"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
         },
         "post_delay": 800,
         "timeout": 3000
@@ -151,7 +208,7 @@
                 ]
             }
         },
-        "post_delay": 800,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Exception_ActivityNewsClose": {
@@ -169,7 +226,7 @@
                 ]
             }
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Exception_MachineGodChallenge": {
@@ -222,7 +279,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Exception_Disconnected": {
@@ -271,7 +328,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "next": [
             "Exception_BackToHub"
         ]
@@ -339,7 +396,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Exception_BackOneLevel": {
@@ -380,7 +437,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Exception_Restart": {
@@ -424,25 +481,27 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Exception_Unknown": {
         // 「卡死 / 未知画面」入口：不靠画面特征识别，而是由调用方用 timeout + on_error 触发——
         // 监督节点在 timeout 内既没匹配到任何正常候选（卡死 / 当前页认不出来），on_error 就落到这里。
-        // 处理顺序 =「先关浮层 → 再退一级 → 最后回主页」，越来越重：
+        // 处理顺序 =「好友申请 → 关浮层 → 退一级 → 最后回主页」，越来越重：
+        //   Exception_FriendRequest 结算后的「好友申请」框 → 点「取消」（**最轻**：已知弹窗、有界）；
         //   Exception_CloseIcon    页面上有「X」关闭图标 → 点掉它关掉弹窗/浮层
-        //                          （**最轻**：不动页面层级，多半只是有残留浮层挡着）；
+        //                          （不动页面层级，多半只是有残留浮层挡着）；
         //   Exception_BackOneLevel 认到左下角返回图标 → 退**一级**（误入子页时用）；
-        //   Exception_BackToHub    两个都认不到（满屏错误页、加载页）→ 才走重路径：
+        //   Exception_BackToHub    上面都认不到（满屏错误页、加载页）→ 才走重路径：
         //                          尽力回主页，回不去（Exception_Back 用满）才 Exception_Restart 重启。
         // ⚠️ 顺序不能反：Exception_BackToHub 是"无条件 DoNothing + next"，一旦排在前面，
-        //    后面的两个永远不会被走到。
+        //    后面的候选永远不会被走到。
         "action": {
             "type": "DoNothing"
         },
         "timeout": 3000,
         "next": [
+            "Exception_FriendRequest",
             "Exception_CloseIcon",
             "Exception_BackOneLevel",
             "Exception_BackToHub"

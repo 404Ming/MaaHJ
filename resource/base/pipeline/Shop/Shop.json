@@ -87,16 +87,19 @@
         ]
     },
     "Shop_Enter_FromHub": {
-        // 主页左侧功能列「商店」（实测 OCR box (42,451,34,18)）。商店页与菜单页这一列都没有「商店」，不会误点。
+        // 主页左侧功能列「商店」。位置会随主页左列的活动条目上下浮动：
+        // 2026-10-16 实测 box (42,451,34,18)，2026-10-18 实测 (41,356,37,20) —— 窄 ROI 会失效，
+        // 所以整列放宽到 [10,300,150,320]。商店页侧栏的「魂石商店」在 y≈913、菜单页的「商店」大按钮在 x≈537，
+        // 都落在本 ROI 之外，不会误点。
         "max_hit": 2,
         "recognition": {
             "type": "OCR",
             "param": {
                 "roi": [
                     10,
-                    410,
-                    140,
-                    110
+                    300,
+                    150,
+                    320
                 ],
                 "expected": [
                     "商店"
@@ -106,7 +109,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "next": [
             "Shop_Enter_Done"
         ]
@@ -132,7 +135,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "next": [
             "Shop_Enter_MenuShop"
         ]
@@ -160,7 +163,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "next": [
             "Shop_Enter_Done"
         ]
@@ -210,9 +213,9 @@
             "param": {
                 "roi": [
                     10,
-                    410,
-                    140,
-                    110
+                    300,
+                    150,
+                    320
                 ],
                 "expected": [
                     "商店"
@@ -222,7 +225,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500
+        "post_delay": 500
     },
     "Shop_Gift_SidebarTop": {
         // 把商店侧栏滚回顶部（侧栏是可滚动的 8 家商店列表，「折扣礼包」在第 2 位）。
@@ -257,7 +260,7 @@
                 "duration": 400
             }
         },
-        "post_delay": 800
+        "post_delay": 500
     },
     "Shop_Gift_PickDiscount": {
         // 选中侧栏「折扣礼包」（实测 OCR box (4,729,102,32)）。ROI 只框侧栏一列，
@@ -289,7 +292,7 @@
                 ]
             }
         },
-        "post_delay": 1500
+        "post_delay": 500
     },
     "Shop_Gift_ToDaily": {
         // 「每日礼包」标签（实测 OCR box (235,385,123,37)）。ROI 只框标签行，
@@ -314,7 +317,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1200,
+        "post_delay": 500,
         "next": [
             "Shop_Gift_AtDaily",
             "Shop_Gift_ToWeekly"
@@ -375,7 +378,7 @@
                 }
             }
         },
-        "post_delay": 600,
+        "post_delay": 500,
         "next": [
             "Shop_Gift_ToWeekly"
         ]
@@ -401,7 +404,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1200,
+        "post_delay": 500,
         "next": [
             "Shop_Gift_AtWeekly",
             "Shop_Gift_Done"
@@ -460,7 +463,7 @@
                 }
             }
         },
-        "post_delay": 600,
+        "post_delay": 500,
         "next": [
             "Shop_Gift_Done"
         ]
@@ -503,9 +506,9 @@
             "param": {
                 "roi": [
                     10,
-                    410,
-                    140,
-                    110
+                    300,
+                    150,
+                    320
                 ],
                 "expected": [
                     "商店"
@@ -515,7 +518,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500
+        "post_delay": 500
     },
     "Shop_Badge_SidebarBottom": {
         // 把侧栏滚到底（「征伐印记商店」「公会商店」在第 5、6 位，需要滚到底才可见）。
@@ -549,7 +552,7 @@
                 "duration": 400
             }
         },
-        "post_delay": 800
+        "post_delay": 500
     },
     "Shop_Badge_PickShop": {
         // 选中侧栏「征伐印记商店」（实测 OCR box (5,545,103,35)+(27,579,59,36)）。
@@ -580,7 +583,7 @@
                 ]
             }
         },
-        "post_delay": 1500
+        "post_delay": 500
     },
     "Shop_Badge_ToRedeem": {
         // 「可兑换」标签（实测 OCR box (571,455,74,33)）。ROI 只框标签带，
@@ -603,7 +606,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "next": [
             "Shop_Badge_AtRedeem"
         ]
@@ -653,7 +656,7 @@
                 }
             }
         },
-        "post_delay": 600,
+        "post_delay": 500,
         "next": [
             "Shop_Badge_Done"
         ]
@@ -696,9 +699,9 @@
             "param": {
                 "roi": [
                     10,
-                    410,
-                    140,
-                    110
+                    300,
+                    150,
+                    320
                 ],
                 "expected": [
                     "商店"
@@ -708,7 +711,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500
+        "post_delay": 500
     },
     "Shop_Guild_SidebarBottom": {
         // 把侧栏滚到底，露出「公会商店」。
@@ -741,7 +744,7 @@
                 "duration": 400
             }
         },
-        "post_delay": 800
+        "post_delay": 500
     },
     "Shop_Guild_PickShop": {
         // 选中侧栏「公会商店」（实测 OCR box (5,753,103,29)）。
@@ -775,7 +778,7 @@
                 ]
             }
         },
-        "post_delay": 1500
+        "post_delay": 500
     },
     "Shop_Guild_ToRedeem": {
         // 「可兑换」标签。
@@ -797,7 +800,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "next": [
             "Shop_Guild_AtRedeem"
         ]
@@ -847,7 +850,7 @@
                 }
             }
         },
-        "post_delay": 600,
+        "post_delay": 500,
         "next": [
             "Shop_Guild_Done"
         ]
@@ -860,8 +863,9 @@
     },
     "Shop_BackHome": {
         // 回主页收尾（也是整条任务的最后一段）：先处理公共异常（奖励弹窗等），
-        // 再认主页锚点；没到主页就点左下角返回退一级（商店页的返回是纯图标，OCR 读不到文字，
-        // 只能用固定点；实测该点能退出商店回到主页）。
+        // 再认主页锚点；没到主页就点左下角返回退一级。
+        // 返回可能要走两级（实测：主页左侧「商店」入口因版本更替失效时会改走 菜单 → 商店，
+        // 那时从商店返回先回菜单页、再回主页），所以两级各挂一个页锚点门控的返回节点。
         // 刻意不用 Exception_BackToHub：它退不回主页时会落到 Exception_Restart 强杀重启游戏。
         "action": {
             "type": "DoNothing"
@@ -870,7 +874,8 @@
         "next": [
             "[JumpBack]Exception_Start",
             "Shop_AtHub",
-            "[JumpBack]Shop_Back"
+            "[JumpBack]Shop_Back",
+            "[JumpBack]Shop_BackMenu"
         ]
     },
     "Shop_AtHub": {
@@ -898,30 +903,70 @@
         ]
     },
     "Shop_Back": {
-        // 退一级：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
-        // max_hit 限制退层级数，退不回主页就交给 Shop_BackHome 超时收尾，绝不无限点。
+        // 退出商店页：商店页左下角是纯图标返回，OCR 读不到文字；而 TemplateMatch 实测在商店页/
+        // 折扣礼包页一律 hit=False（同一个模板在祈愿页却能命中，图标美术不同），所以改成
+        // 「页锚点门控 + 固定落点」：只有确认当前在商店页（左上角页内标题「商店」）才点 (73,1240)。
+        // 主页/菜单页上本节点都不命中（那两个位置的「商店」不在 ROI 内），不会误点。
+        // max_hit 限制退层级数（弹窗还开着时第一下只会关弹窗），退不回主页就交给 Shop_BackHome 收尾。
         // 本节点无 next，只作为 [JumpBack] 步骤供 Shop_BackHome 复用。
-        "max_hit": 6,
+        "max_hit": 4,
         "recognition": {
-            "type": "TemplateMatch",
+            "type": "OCR",
             "param": {
                 "roi": [
+                    40,
                     0,
-                    1180,
-                    200,
-                    100
+                    160,
+                    60
                 ],
-                "template": [
-                    "Daily/BackButton.png",
-                    "Daily/BackButton2.png"
-                ],
-                "threshold": 0.8
+                "expected": [
+                    "商店"
+                ]
             }
         },
         "action": {
-            "type": "Click"
+            "type": "Click",
+            "param": {
+                "target": [
+                    63,
+                    1230,
+                    20,
+                    20
+                ]
+            }
         },
-        "post_delay": 2000
+        "post_delay": 500
+    },
+    "Shop_BackMenu": {
+        // 从菜单页（MENU）退回主页：菜单页左上角是大标题「菜单MENU」，同样用固定落点 (73,1240)。
+        // 主页底部导航的「菜单」在 (637,1232)，不在本 ROI 内，因此主页上本节点不命中。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    60,
+                    190,
+                    240,
+                    90
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    63,
+                    1230,
+                    20,
+                    20
+                ]
+            }
+        },
+        "post_delay": 500
     },
     "Shop_Done": {
         // 收尾态（无 next → 整条任务链结束）：停在主页。

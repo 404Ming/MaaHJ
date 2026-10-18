@@ -1,16 +1,18 @@
 {
     "Wish_Start": {
-        // 祈愿（抽卡）子流程入口：主页→菜单→祈愿→选池→十连→回主页。
-        // 由周常任务 WeeklyDispatch 以 run_task 方式调用，pool 通过 pipeline_override 指定（冒险祈愿/友情祈愿）。
-        // 导航与选池用 [JumpBack] 循环，回主页统一以前向 BackToMainHub_Start 收口，保证任务能正常结束。
+        // 祈愿（抽卡）子流程入口：主页→菜单→祈愿→确认目标池→十连→收结果→回主页。
+        // 由周常任务 WeeklyDispatch 以 run_task 方式调用，pool 通过 Wish_VerifyPool / Wish_SelectPool 的 pipeline_override 指定。
+        // 关键约束：只有「横幅确认命中目标池」才会抽卡，选池失败时宁可任务失败也不抽错池。
+        // 循环一律用普通 next 回跳（不用 [JumpBack]）：[JumpBack] 会在整条链收尾后重新弹回旧节点，
+        // 导致已经回主页的任务又跑回抽卡分支（实测过一次）。
         "action": {
             "type": "DoNothing"
         },
         "timeout": 20000,
         "next": [
             "[JumpBack]Exception_Start",
-            "[JumpBack]Wish_OpenMenu",
-            "[JumpBack]Wish_OpenPrayer",
+            "Wish_OpenMenu",
+            "Wish_OpenPrayer",
             "Wish_Page"
         ]
     },
@@ -34,23 +36,23 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 2500,
         "next": [
-            "[JumpBack]Wish_Start"
+            "Wish_Start"
         ]
     },
     "Wish_OpenPrayer": {
         "max_hit": 1,
-        // 菜单页里的「祈愿」入口（左上区域，避开顶部「菜单MENU」标题）。
+        // 菜单页左下区域的「祈愿」入口（实测位于 x57,y837；避开顶部「菜单MENU」标题与其它按钮）。
         "recognition": {
             "type": "OCR",
             "param": {
                 "roi": [
                     20,
-                    800,
-                    140,
-                    140
+                    780,
+                    120,
+                    120
                 ],
                 "expected": [
                     "祈愿"
@@ -60,24 +62,15 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 2500,
         "next": [
-            "[JumpBack]Wish_Start"
+            "Wish_Start"
         ]
     },
     "Wish_Page": {
-        "next": [
-            "[JumpBack]Exception_Start",
-            "[JumpBack]Wish_FindPool",
-            "Wish_Draw",
-            "Wish_Done"
-        ]
-    },
-    "Wish_FindPool": {
-        // 在祈愿页内：用顶部「祈愿」标题做锚点（仅祈愿页命中，回主页后必然落空→自然退出循环）。
-        // 命中后于底部泳道找目标池（expected 由调用方 override 指定）；找不到则右滑一屏再找，最多 5 次。
-        // 兜底：泳道滑动耗尽仍未找到目标池，则直接对当前选中池抽卡（周常「抽卡10次」只要抽到即算完成）。
+        // 祈愿页锚点：左上角「祈愿」标题。没有识别条件的节点在 MaaFramework 里等同 DirectHit，
+        // 会让整个子流程「假装成功」，所以这里必须有真实识别条件，导航失败时任务要显式失败。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -85,68 +78,99 @@
                     0,
                     0,
                     200,
-                    60
+                    80
                 ],
                 "expected": [
                     "祈愿"
                 ]
             }
         },
+        "action": {
+            "type": "DoNothing"
+        },
         "next": [
+            "Wish_VerifyPool",
             "Wish_SelectPool",
-            "Wish_SwipePool",
-            "Wish_Draw"
+            "Wish_PickFriend"
         ]
     },
-    "Wish_SelectPool": {
+    "Wish_VerifyPool": {
+        // 横幅确认：当前展示的祈愿池标题。命中才允许抽卡。
+        // 美术字标题 OCR 会抖（「友情祈愿」常被识别成「友倩祈愿」），故 expected 用正则。
         "recognition": {
             "type": "OCR",
             "param": {
                 "roi": [
                     0,
-                    1060,
+                    430,
                     720,
-                    170
+                    340
                 ],
                 "expected": [
-                    "友情祈愿"
+                    "友.祈愿"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Wish_Draw"
+        ]
+    },
+    "Wish_SelectPool": {
+        // 底部泳道里名字可读的池子（如「冒险祈愿」）直接点选；expected 由调用方 override。
+        // 默认值同 Wish_VerifyPool（友情祈愿）：该池泳道卡片只写「火水属性」，这里的识别必然落空，
+        // 于是自然落到 Wish_PickFriend 兜底，不会误点其它池。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1020,
+                    720,
+                    150
+                ],
+                "expected": [
+                    "友.祈愿"
                 ]
             }
         },
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
-            "Wish_Draw"
+            "Wish_Page"
         ]
     },
-    "Wish_SwipePool": {
-        "max_hit": 5,
-        // 泳道从右往左滑，露出右侧的祈愿池（如友情祈愿）。
+    "Wish_PickFriend": {
+        // 兜底选池：友情祈愿恒为泳道最左卡片（x20~215），点它选中后回到 Wish_Page 由 Wish_VerifyPool 复核。
+        // max_hit=1：只点一次，复核仍失败就直接失败退出，避免反复点错池后误抽。
+        "max_hit": 1,
         "action": {
-            "type": "Swipe",
+            "type": "Click",
             "param": {
-                "begin": [
-                    650,
-                    1135
-                ],
-                "end": [
-                    50,
-                    1135
-                ],
-                "duration": 500
+                "target": [
+                    118,
+                    1085,
+                    16,
+                    16
+                ]
             }
         },
-        "post_delay": 1500,
-        "timeout": 2000,
+        "post_delay": 500,
+        "timeout": 3000,
         "next": [
-            "[JumpBack]Wish_FindPool"
+            "Wish_Page"
         ]
     },
     "Wish_Draw": {
-        // 十连抽奖按钮（底部中间偏右）。点击后等待抽卡动画。
+        // 十连抽奖按钮（底部右侧，实测 475,967,108,34）。点击后只等 500ms，
+        // 抽卡动画由后续 Wish_AfterDraw / Wish_TapReveal 的循环重试兜住（不再依赖 6s 固定等待）。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -164,10 +188,67 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 6000,
+        "post_delay": 500,
+        "timeout": 3000,
+        "next": [
+            "Wish_AfterDraw"
+        ]
+    },
+    "Wish_AfterDraw": {
+        // 结果页分流：先看是否已到「确认」结算页，否则点屏幕推进翻牌/结果网格。
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "Wish_ConfirmResult",
+            "Wish_TapReveal"
+        ]
+    },
+    "Wish_ConfirmResult": {
+        // 结算页右下「确认」（实测 472,1179,58,35）——点它回祈愿页。
+        // 误点左侧「再抽十次」会再花 1500 友情点，故 ROI 只覆盖右半。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    330,
+                    1120,
+                    390,
+                    160
+                ],
+                "expected": [
+                    "确认"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
-            "BackToMainHub_Start"
+            "Wish_Done"
+        ]
+    },
+    "Wish_TapReveal": {
+        // 翻牌推进：抽卡结果先展示单张卡（「点击空白区域继续」），点 (360,900) 空闲区推进。
+        // 该点落在结果网格卡片下方空白处，不会碰到「再抽十次 / 确认」按钮。
+        "max_hit": 14,
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    352,
+                    892,
+                    16,
+                    16
+                ]
+            }
+        },
+        "post_delay": 500,
+        "timeout": 1500,
+        "next": [
+            "Wish_AfterDraw"
         ]
     },
     "Wish_Done": {

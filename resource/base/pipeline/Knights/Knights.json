@@ -84,7 +84,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1200,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_DonateFlow"
@@ -121,7 +121,7 @@
                 ]
             }
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_Donate_Home"
@@ -147,7 +147,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_DonateFlow"
@@ -173,7 +173,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_DonateFlow"
@@ -199,7 +199,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_DonateFlow"
@@ -273,7 +273,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Knights_Donate_Back": {
@@ -301,7 +301,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 3000
     },
     "Knights_HomeThenEnd": {
@@ -429,7 +429,7 @@
                 ]
             }
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_TreasureFlow"
@@ -455,7 +455,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_TreasureFlow"
@@ -481,7 +481,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 4000,
+        "post_delay": 500,
         "timeout": 2500,
         "next": [
             "Knights_Treasure_Battle"
@@ -512,7 +512,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_TreasureFlow"
@@ -542,7 +542,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3500,
+        "post_delay": 500,
         "timeout": 5000,
         "next": [
             "Knights_TreasureFlow"
@@ -568,7 +568,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_TreasureFlow"
@@ -598,7 +598,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": [
             "Knights_TreasureFlow"
@@ -662,7 +662,7 @@
                 "custom_action": "BattleTurnClick"
             }
         },
-        "post_delay": 1000,
+        "post_delay": 500,
         "timeout": 1500
     },
     "Knights_Treasure_Claim": {
@@ -688,7 +688,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 2500
     },
     "Knights_Treasure_Finish": {

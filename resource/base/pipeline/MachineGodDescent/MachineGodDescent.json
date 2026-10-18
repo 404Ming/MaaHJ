@@ -76,7 +76,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": ["MachineGodDescent_Start"]
     },
@@ -102,7 +102,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": ["MachineGodDescent_Start"]
     },
@@ -127,7 +127,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 3000,
         "next": ["MachineGodDescent_Start"]
     },
@@ -156,7 +156,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2500,
+        "post_delay": 500,
         "timeout": 3000,
         "next": ["MachineGodDescent_Start"]
     },
@@ -348,7 +348,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 15000,
         "next": [
             "MachineGodDescent_CreateRoom_AfterCreate"
@@ -401,7 +401,7 @@
                 ]
             }
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 5000,
         "next": [
             "MachineGodDescent_CreateRoom_Formation"
@@ -426,14 +426,60 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 15000,
+        "next": [
+            "MachineGodDescent_CreateRoom_AfterFormation"
+        ]
+    },
+    "MachineGodDescent_CreateRoom_AfterFormation": {
+        // 助战选择完成 → 编队页「确定」→ 房间页 之间的**超时判断节点**（用户要求）。
+        // 只认房间页的「开始战斗」：15s 内进不去（卡在编队页 / 弹窗盖住 / 断线重连 / 加载不出来），
+        // 就由 on_error 直接进**公共异常处理流程** Exception_Start（断线、奖励弹窗、体力、活动公告都在里面），
+        // 不再像以前那样被静默跳过、让整条链在错误页面上草草结束。
+        // ⚠️ on_error 只在「识别超时」时触发；Exception_Start 本身是条件节点，
+        //    画面上没有任何异常特征时它不命中、链到此结束（不会盲点任何按钮）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    380,
+                    1150,
+                    220,
+                    80
+                ],
+                "expected": [
+                    "开始战斗"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 15000,
+        "on_error": [
+            "Exception_Start",
+            "MachineGodDescent_CreateRoom_Abort"
+        ],
         "next": [
             "MachineGodDescent_CreateRoom_StartBattle"
         ]
     },
+    "MachineGodDescent_CreateRoom_Abort": {
+        // on_error 的收尾节点：公共异常处理流程里**没有任何可处理特征**时（画面既不是断线、
+        // 也没有弹窗），Exception_Start 不命中，需要这个无条件节点把 on_error 链正常结束。
+        // ⚠️ 少了它会触发框架的 "error handling loop detected"（实测：on_error 只挂
+        //    Exception_Start 时，Exception_Start 不命中 → 重新回到本节点的 on_error → 死循环）。
+        // DirectHit + 无 next：只为收尾，不做任何动作、不点任何按钮。
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
     "MachineGodDescent_CreateRoom_StartBattle": {
-        // 房间页「开始战斗」。
+        // 房间页「开始战斗」（前置已由 AfterFormation 判断过，这里命中即点）。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -451,7 +497,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 15000,
         "next": [
             "MachineGodDescent_CreateRoom_ConfirmStart"
@@ -478,7 +524,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 10000
     }
 }

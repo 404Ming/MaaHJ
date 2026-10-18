@@ -31,5 +31,36 @@
         "action": {
             "type": "DoNothing"
         }
+    },
+    "Flag_SupportCall": {
+        // 全局任务配置「多人支援 · 发送多人支援请求」的开关载体（switch 选项覆写 enabled）。
+        // 关闭时不点战斗左下角的「发送多人支援请求」，整段跳过。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Flag_SupportScope_All": {
+        // 全局任务配置「多人支援 · 支援请求范围」多选框的一个 case。
+        // ⚠️ 多选框（checkbox）**只给被选中的 case 下发 override**，未选中时节点保持这里的默认值，
+        //    所以四个范围载体的默认值必须是 false，勾选才变 true。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Flag_SupportScope_Friend": {
+        // 同上：「好友可见」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Flag_SupportScope_Guild": {
+        // 同上：「骑士团可见」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
     }
 }

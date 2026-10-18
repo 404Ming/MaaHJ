@@ -12,7 +12,7 @@
         //      状态机跑一遍：按全局配置「体力药消耗优先级」消耗体力药，收尾在 StaminaRefill_Back 关掉弹窗；
         //      跑完由 [JumpBack] 回到本节点继续轮询，因此补完一次不会收尾，也不会重启任务或改动调用方流程。
         //   2) RefillStaminaOnly_Start —— 没检测到弹窗就落回自己，继续下一轮轮询。
-        // 补完一次后不会马上重入流程：StaminaRefill_Back（关弹窗）自带 post_delay 800ms，回到本节点重新判定时
+        // 补完一次后不会马上重入流程：StaminaRefill_Back（关弹窗）自带 post_delay 500ms，回到本节点重新判定时
         // 弹窗已经关干净了，不会出现「刚补完又被判成弹窗还在、再跑一趟」的空转。
         "recognition": {
             "type": "DirectHit"

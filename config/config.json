@@ -1,13 +1,4 @@
 {
-  "ColorTheme": "Blue",
-  "BaseTheme": "Dark",
-  "CurrentLanguage": "zh-CN",
-  "ResourceUpdateChannelInitialized": true,
-  "EnableEdit": false,
-  "UI.HasCompletedFirstUseTutorial": true,
-  "UI.MainWindow.Maximized": "false",
-  "UI.MainWindow.Width": "1080",
-  "UI.MainWindow.Height": "1106",
-  "UI.MainWindow.PositionX": "-1321",
-  "UI.MainWindow.PositionY": "459"
+    "ColorTheme": "Blue",
+    "BaseTheme": "Dark"
 }

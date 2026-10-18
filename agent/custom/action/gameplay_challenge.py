@@ -812,6 +812,21 @@ class PickSupport(CustomAction):
         （见 `_SUPPORT_PREF_NODES`）；`custom_action_param` 仅作为旧接线/手工传参的兜底。
     """
 
+    def __init__(
+        self,
+        formation_roi: list[float] | None = None,
+        formation_text: str | None = None,
+    ) -> None:
+        """`formation_roi` / `formation_text`：判定「已经站在编队页」的锚点。
+
+        默认是本模块实机标定的「开始战斗」(玩法挑战/机神降临的编队页)；
+        副本挑战（多人房间）的编队页底部是「确定」而不是「开始战斗」，
+        于是改用「主要成员」这个两页都稳定、且只属于编队页的锚点，其余逻辑完全复用。
+        """
+        super().__init__()
+        self._formation_roi = list(formation_roi) if formation_roi else list(_FORMATION_START_ROI)
+        self._formation_text = formation_text or "开始战斗"
+
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
         # 期望值优先读六个偏好数据节点（正式接线），再退回 custom_action_param（兜底）。
         prefs = _read_support_prefs(context)
@@ -824,6 +839,16 @@ class PickSupport(CustomAction):
             if element not in prefs and legacy.get(key):
                 prefs[element] = str(legacy[key])
         logger.debug("PickSupport: 助战期望 = {}", prefs)
+        return CustomAction.RunResult(success=self.pick(context, prefs))
+
+    def pick(self, context: Context, prefs: dict[str, str] | None = None) -> bool:
+        """复用入口（别的任务/流程直接调用）：选到符合偏好的魔物，成功时停在编队页。
+
+        只做「选助战」这件事，点不点「开始战斗/确定」由调用方自己决定 ——
+        副本挑战复用本模块时编队页底部按钮是「确定」，就是靠这个入口实现的。
+        """
+        if prefs is None:
+            prefs = _read_support_prefs(context)
 
         # 第 1 步：确保真的站在编队页上（点完条目必须有后置校验，绝不假成功）
         if not self._open_formation_page(context):
@@ -831,18 +856,18 @@ class PickSupport(CustomAction):
                 "PickSupport: 连续 {} 次都没能打开编队页，本次挑战无法继续。",
                 _MAX_ENTRY_ATTEMPTS,
             )
-            return CustomAction.RunResult(success=False)
+            return False
 
         # 第 2 步：编队页校验助战效果类型（不符则点「助战」重选）
-        return self._ensure_desired(context, prefs)
+        return bool(self._ensure_desired(context, prefs).success)
 
     def _on_formation_page(self, context: Context) -> bool:
-        """编队页锚点：底部「开始战斗」。
+        """编队页锚点：默认底部「开始战斗」，可由构造函数改成别的锚点。
 
         实测编队页 box (295,1095,125,44) score≈1.000，助战选择页 hit=False，
-        是两页之间最稳的区分依据。
+        是两页之间最稳的区分依据。副本挑战的编队页底部是「确定」，构造时改用「主要成员」。
         """
-        return bool(_hit(context, _FORMATION_START_ROI, "开始战斗"))
+        return bool(_hit(context, self._formation_roi, self._formation_text))
 
     def _on_support_page(self, context: Context) -> bool:
         """助战选择页锚点：弹窗标题「助战选择」（实测 box (288,219,142,43) score≈0.999）。"""

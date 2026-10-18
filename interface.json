@@ -4,7 +4,7 @@
     "label": "MaaHJ",
     "title": "哼唧小助手",
     "icon": "resource/base/image/icon.png",
-    "version": "v0.1.2",
+    "version": "v0.1.3",
     "description": "MaaHJ MaaFW project",
     "controller": [
         {
@@ -1652,6 +1652,1020 @@
                     }
                 }
             }
+        },
+        "副本挑战副本": {
+            "type": "select",
+            "label": "挑战副本",
+            "description": "「副本挑战」任务要打的副本（主页 → 副本 → 对应系列）。每个系列先按图认出系列横幅，再在列表里滚到该副本、点卡片右侧「前往」进入详情页；默认「无」= 不做任何挑战。括号里是所属系列，带「传说副本」的是各系列最下面那张传说副本（难度 1~10，左侧页签是「难度N」）。",
+            "cases": [
+                {
+                    "name": "无",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "__.未选择__"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "__.未选择__"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "王国灾厄 · 野猪统领",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "王国灾厄"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "野猪统领"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "王国灾厄 · 青鬃熊",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "王国灾厄"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "青鬃熊"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "王国灾厄 · 狂暴树精",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "王国灾厄"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "狂暴树精"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "王国灾厄 · 猩猩王",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "王国灾厄"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "猩猩王"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "王国灾厄 · 恶魔康斯洛特（传说副本）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "王国灾厄"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "康斯洛特"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 米劳罗",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "米劳罗"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 潘塔菲卡",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "潘塔菲卡"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 苏尔特尔",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "苏尔特尔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 赫拉斯瓦尔格",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "赫拉斯瓦尔格"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 卡律布狄斯",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "卡律布狄斯"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 伊南娜",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "伊南娜"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "始源巨兽 · 魔君诺维克（传说副本）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "始源巨兽"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "诺维克"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 迪亚波罗",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "迪亚波罗"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 斯文托维特",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "斯文托维特"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 欧若拉",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "欧若拉"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 阿格莱亚",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "阿格莱亚"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 太阿",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "太阿"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 戈舆",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "戈舆"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神祝之翼 · 女武神艾莉瑞尔（传说副本）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神祝之翼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "艾莉瑞尔"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 焚尽花",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "焚尽花"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 和音傀",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "和音傀"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 欲望泉",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "欲望泉"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 断裁偶",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "断裁偶"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 绝罚刺",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "绝罚刺"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 虚妄冠",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "虚妄冠"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "烛之造物 · 孕星烛母（传说副本）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "烛之造物"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "孕星烛母"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神骸试炼 · 天阳御者·法厄同",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神骸试炼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "法厄同"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神骸试炼 · 登神天马·柏勒洛丰",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神骸试炼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "柏勒洛丰"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神骸试炼 · 屠魔英仙·珀尔修斯",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神骸试炼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "珀尔修斯"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神骸试炼 · 净世猎手·俄里翁",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神骸试炼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "俄里翁"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "神骸试炼 · 无终冥士·俄耳浦斯（传说副本）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetSeries": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "神骸试炼"
+                                    ]
+                                }
+                            }
+                        },
+                        "DungeonChallenge_TargetDungeon": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "俄耳浦斯"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "无"
+        },
+        "副本挑战方式": {
+            "type": "select",
+            "label": "挑战方式",
+            "description": "副本详情页底部的挑战方式。「创建房间」= 创建多人房间 → 选助战 → 编队确定 → 房间开始战斗；「加入房间」= 加入别人的房间（该流程尚未实现，选中后任务不做任何点击）。",
+            "cases": [
+                {
+                    "name": "创建房间",
+                    "pipeline_override": {
+                        "DungeonChallenge_Flag_CreateRoom": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "加入房间",
+                    "pipeline_override": {
+                        "DungeonChallenge_Flag_CreateRoom": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "创建房间"
+        },
+        "副本挑战难度": {
+            "type": "select",
+            "label": "难度",
+            "description": "副本详情页左侧的难度页签。武器副本是「简单 / 困难 / 噩梦」，传说副本是「难度1 ~ 难度10」：难度1 = 简单（普通）、难度2 = 困难、难度3 = 噩梦，难度4 起对应传说副本自己的难度N。点完会校验页签是否真的高亮，未解锁/点击没生效就不打这一场（不消耗体力）。默认「无」= 不做任何挑战。",
+            "cases": [
+                {
+                    "name": "无",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "__.未选择__"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度1（普通）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "简单|普通|难度1"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度2（困难）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "困难|难度2"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度3（噩梦）",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "噩梦|难度3"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度4",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度4"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度5",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度5"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度6",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度6"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度7",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度7"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度8",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度8"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度9",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度9"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "难度10",
+                    "pipeline_override": {
+                        "DungeonChallenge_TargetDifficulty": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "难度10"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "无"
+        },
+        "副本挑战次数": {
+            "type": "input",
+            "label": "次数",
+            "inputs": [
+                {
+                    "name": "副本挑战次数",
+                    "label": "次数",
+                    "description": "要打几次，可输入 0-9999 的整数；0（默认）= 什么都不做。每一次都会真实消耗体力/BP；当日剩余挑战次数用完时会自动停下并在日志说明。",
+                    "default": "0",
+                    "pipeline_type": "int",
+                    "verify": "^(0|[1-9]\\d{0,3})$",
+                    "pattern_msg": "请输入 0-9999 之间的整数（0 = 不挑战）"
+                }
+            ],
+            "pipeline_override": {
+                "DungeonChallenge_Start": {
+                    "action": {
+                        "param": {
+                            "custom_action_param": {
+                                "times": "{副本挑战次数}"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "发送多人支援请求": {
+            "type": "switch",
+            "label": "发送多人支援请求",
+            "description": "战斗开始后在左下角点「发送多人支援请求」→「呼叫支援」弹窗里按下面的范围勾选并发送。**一场战斗只发一次**；该场战斗左下角没有这个按钮就整段跳过。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Flag_SupportCall": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Flag_SupportCall": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "No"
+        },
+        "支援请求范围": {
+            "type": "checkbox",
+            "label": "支援请求范围",
+            "description": "「呼叫支援」弹窗里要发给谁（可多选）。游戏内默认全选，没勾选的会被取消勾选。只在开启「发送多人支援请求」时生效。",
+            "cases": [
+                {
+                    "name": "全体可见",
+                    "pipeline_override": {
+                        "Flag_SupportScope_All": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "好友可见",
+                    "pipeline_override": {
+                        "Flag_SupportScope_Friend": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "骑士团可见",
+                    "pipeline_override": {
+                        "Flag_SupportScope_Guild": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ],
+            "default_case": [
+                "全体可见"
+            ]
         }
     },
     "global_option": [
@@ -1665,7 +2679,9 @@
         "风属性编队助战",
         "土属性编队助战",
         "光属性编队助战",
-        "暗属性编队助战"
+        "暗属性编队助战",
+        "发送多人支援请求",
+        "支援请求范围"
     ],
     "import": [
         "./tasks/guide.json",

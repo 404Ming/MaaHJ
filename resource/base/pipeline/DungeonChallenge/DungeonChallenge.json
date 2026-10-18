@@ -1,6 +1,107 @@
 {
     "DungeonChallenge_Start": {
-        // TODO: 待实现副本挑战逻辑。
+        // 入口：按任务设置「次数」挑战「副本挑战」里指定的副本（多人房间战，创建房间流程）。
+        // custom_action_param.times 由「副本挑战次数」选项覆写：0-9999，默认 0（= 不做任何挑战、不点任何按钮）。
+        // 一轮的完整动作都在 Python（DungeonChallengeChallenge）里，实机 720x1280 逐跳印证：
+        //   主页「副本」→ 副本挑战页（系列页）→ **先切到目标系列** → 列表里找目标副本
+        //   → 点该卡片右侧「前往」图钉 → 副本详情页 → 点左侧难度页签 →「创建房间」
+        //   → 助战选择（复用玩法挑战的 PickSupport，按全局 神/魔/属攻 偏好选魔物）
+        //   → 编队页「确定」→ 房间页「开始战斗」→「是否开始战斗?」确定
+        //   → 战斗（**只点「跳过回合」**，不碰「回合开始/奥义释放/自动/倍速」）
+        //   → 结算**循环**点「点击空白处继续」/「确认」/「确定」
+        //   → 退出房间 → 回主页。
+        // 为什么做成一个状态化 CustomAction（而不是一串 pipeline 节点）：
+        //   ① 「切换系列」弹窗里的系列名是**艺术字**，OCR 只认得出「始源巨兽」，其余全被拆成
+        //      「王国」+「灾厄」/「神」；改用**横幅图模板匹配**后 5 个系列 1.000/0.959 分，互相误配 ≤0.31；
+        //   ② 副本列表一屏只放 4 张卡，目标卡可能要滚动才出现（每个系列 5~7 个副本）；
+        //   ③ 难度页签在「传说副本」上是 难度1~难度10，在武器副本上是 简单/困难/噩梦，文案不统一；
+        //   ④ 房间战结束后落点不固定（房间页 / 详情页 / 主页都可能）；
+        //   这些都要按运行时画面判定，pipeline 的静态 expected / max_hit 表达不了。
+        // ⚠️ 会真实消耗体力/BP：次数为 0、「挑战副本」还是「无」、「难度」还是「无」、
+        //    或「挑战方式」选了尚未实现的「加入房间」时，整段跳过、一个按钮都不点。
+        // timeout：一轮副本战通常 1~3 分钟，1 小时足够覆盖多次；久到异常时由客户端停止兜底。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "DungeonChallengeChallenge",
+                "custom_action_param": {
+                    "times": 0
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "DungeonChallenge_Done"
+        ]
+    },
+    "DungeonChallenge_Done": {
+        // 终态：本次副本挑战结束（每轮结束时已经尽量把角色送回主页）。
+        // 无条件节点，保证任务以成功收尾；不再让 Start 重新判定，避免回到主页后又被当成入口跑一遍。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // ---- 任务设置载体节点（纯数据，不被任何 next 引用、永不执行）----------------------
+    // ⚠️ 必须是**预定义节点**：pipeline_override 只做属性合并、不会创建节点，
+    //    少了它们客户端的选项会静默失效（get_node_data 拿到 None）。
+    // 读法：context.get_node_data(节点名)["recognition"]["param"]["expected"]。
+    "DungeonChallenge_TargetSeries": {
+        // 「挑战副本」选项携带的**系列名**（王国灾厄 / 始源巨兽 / 神祝之翼 / 烛之造物 / 神骸试炼）。
+        // 只用来在「切换系列」弹窗里挑模板（见 dungeon_challenge.py::_SERIES_TEMPLATES），不做 OCR。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "王国灾厄"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "DungeonChallenge_TargetDungeon": {
+        // 「挑战副本」选项携带的**副本关键字**（野猪统领 / 艾莉瑞尔 / 俄耳浦斯 …）。
+        // Python 用「包含」匹配列表里识别到的卡片标题：卡片标题带难度后缀
+        //（「野猪统领-困难」「女武神艾莉瑞尔难度1」「天阳御者·法厄同」），所以不用全串匹配。
+        // 传说副本的标题里难度数字偶尔会整段丢字（实测「无终冥土·俄耳浦斯难度」），
+        // 因此关键字统一取**最能认稳的那一段**（去掉系列前缀/难度后缀）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "野猪统领"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "DungeonChallenge_TargetDifficulty": {
+        // 「难度」选项携带的**页签文案正则**，用于在副本详情页左侧页签列里点对应难度。
+        // 写成单个正则（而不是多个候选）是为了让 Python 能从中解析出**档位序号**：
+        //   「简单|普通|难度1」→ 1，「困难|难度2」→ 2，「噩梦|难度3」→ 3，「难度N」→ N。
+        // 实测（720x1280）：传说副本页签是 难度1~难度10；武器副本页签是 简单 / 困难 / 噩梦。
+        // 默认「无」= 不会是任何真实文案 → Python 判定未选难度、整段跳过。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "__.未选择__"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "DungeonChallenge_Flag_CreateRoom": {
+        // 「挑战方式」的开关载体：创建房间 = true / 加入房间 = false。
+        // ⚠️ 默认 true，与 interface.json 的 default_case「创建房间」一致。
+        // 读法：context.get_node_data("DungeonChallenge_Flag_CreateRoom")["enabled"]，
+        // 节点读不到时按**关闭**处理（本段会消耗体力，接线不闭环时宁可不打）。
+        "enabled": true,
         "action": {
             "type": "DoNothing"
         }

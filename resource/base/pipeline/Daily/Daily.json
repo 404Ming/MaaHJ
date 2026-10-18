@@ -30,11 +30,12 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 2500
     },
     "Daily_Main": {
-        // 页内主循环：①先领完可领奖励 ②奖杯≥30 则领里程碑奖励并收尾 ③否则按优先级去完成任务。
+        // 页内主循环：①先领完可领奖励 ②两个挑战都尝试过且奖杯≥30 则领里程碑奖励并回主页收尾
+        // ③否则按优先级去完成任务（史莱姆宝库 → 火元素试炼 → 创建房间）。
         // 每一轮从列表头部重新判定（领取后列表会重排，可领取的行会浮到最上）。
         // next 首位挂公共异常处理：遮屏弹窗 / 断线弹窗 / 体力弹窗先兜掉，没有异常立刻交回本列表。
         // 注意本节点 timeout=3000 太短，不能当「卡死」窗口，故这里不挂 on_error → Exception_Unknown。
@@ -45,8 +46,27 @@
         "next": [
             "[JumpBack]Exception_Start",
             "[JumpBack]Daily_ClaimRewards",
-            "Daily_TrophyEnough",
+            "Daily_TrophyGate",
             "[JumpBack]Daily_PickTask"
+        ]
+    },
+    "Daily_TrophyGate": {
+        // 奖杯结算闸门：必须等「火元素试炼」挑战节点命中过，才允许进入 Daily_TrophyEnough。
+        // 否则史莱姆宝库打完、领完 15 奖杯后如果已经 >= 30，会直接把元素试炼跳过。
+        // 火元素试炼任务本身已完成/不存在时，由 Daily_NoMoreTask 的兜底分支做最后一次奖杯判定。
+        "recognition": {
+            "type": "Custom",
+            "param": {
+                "custom_recognition": "DailyTrophyGate"
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "Daily_TrophyEnough",
+            "Daily_PickTask"
         ]
     },
     "Daily_ClaimRewards": {
@@ -72,7 +92,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 2000
     },
     "Daily_TrophyEnough": {
@@ -97,7 +117,8 @@
         },
         "timeout": 2000,
         "next": [
-            "Daily_ClaimMilestone"
+            "Daily_ClaimMilestone",
+            "Daily_BackToHub"
         ]
     },
     "Daily_ClaimMilestone": {
@@ -120,7 +141,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 2000,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
             "Daily_CloseRewardPopup",
@@ -146,7 +167,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
             "Daily_BackToHub"
@@ -176,7 +197,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 2500,
         "next": [
             "Daily_Done"
@@ -190,223 +211,189 @@
     },
     "Daily_PickTask": {
         // 任务优先级（用户指定，与游戏列表顺序一致）：
-        // 完成1次史莱姆宝库 > 完成1次任意元素试炼副本 > 累积消耗体力50点 > 创建一次房间。
-        // 每个任务节点先确认标题在列表中，再由对应的「前往」节点点击按钮。
+        // 完成1次史莱姆宝库 > 完成1次任意元素试炼副本 > 创建一次房间。
+        // 「累积消耗体力」按用户要求不再识别。
+        // 直接挂各任务的「前往」节点：DailyTaskRowGo 会同时校验标题和同行「前往」，
+        // 已完成（按钮变成「领取/已完成」）或不在列表里的任务会自然失败并跳到下一个候选。
         "action": {
             "type": "DoNothing"
         },
         "timeout": 3000,
         "next": [
-            "Daily_Task_Slime",
-            "Daily_Task_ElementTrial",
-            "Daily_Task_Stamina",
-            "Daily_Task_CreateRoom"
+            "Daily_Go_Slime",
+            "Daily_Go_ElementTrial",
+            "Daily_Go_CreateRoom",
+            "Daily_NoMoreTask"
         ]
     },
-    "Daily_Task_Slime": {
-        // 优先级 1：完成1次史莱姆宝库。
+    "Daily_NoMoreTask": {
+        // 所有已知任务都尝试过（或列表中已不存在）时的兜底：
+        // 先做最后一次奖杯判定（元素试炼任务已完成/不存在时 Fire 挑战节点不会命中，
+        // Daily_TrophyGate 永远不会放行，所以这里必须绕过闸门直接判定）。
+        // 奖杯不足 30 时由 Daily_Stop 正常结束任务。
         "recognition": {
-            "type": "OCR",
-            "param": {
-                "roi": [
-                    100,
-                    470,
-                    340,
-                    570
-                ],
-                "expected": [
-                    ".*史莱姆宝库.*"
-                ]
-            }
+            "type": "DirectHit"
         },
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 2000,
         "next": [
-            "Daily_Go_Slime"
+            "Daily_TrophyEnough",
+            "Daily_Stop"
         ]
+    },
+    "Daily_Stop": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "StopTask"
+        }
     },
     "Daily_Go_Slime": {
         "max_hit": 1,
-        // 点该行的「前往」（行内按钮位置随列表重排变化，故按整列取最上面一个「前往」）。
-        // max_hit 1：本任务每次运行只导航一次，避免在玩法页与列表页之间反复点击。
+        // 任务列表会重排，不能固定取第几个「前往」。
+        // 通过 DailyTaskRowGo 自定义识别：先找该任务标题所在行，再点同行右侧的「前往」。
+        // 点完「前往」满足日常任务的导航要求后，先回主页，再由 Daily_Challenge_Slime 调用「玩法挑战」真正打一次。
         "recognition": {
-            "type": "OCR",
+            "type": "Custom",
             "param": {
-                "roi": [
-                    480,
-                    470,
-                    140,
-                    580
-                ],
-                "expected": [
-                    "前往"
-                ],
-                "order_by": "Vertical",
-                "index": 0
+                "custom_recognition": "DailyTaskRowGo",
+                "custom_recognition_param": {
+                    "title": ".*史莱姆宝库.*"
+                }
             }
         },
         "action": {
             "type": "Click"
         },
-        "post_delay": 3500,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
-            "Daily_AlreadyOnDailyPage",
-            "Daily_BackToDailyPage"
+            "Daily_ReturnHome_Slime"
         ]
     },
-    "Daily_Task_ElementTrial": {
-        // 优先级 2：完成1次任意元素试炼副本。
-        "recognition": {
-            "type": "OCR",
+    "Daily_ReturnHome_Slime": {
+        // 点完「前往」后回主页。用 CustomAction 包一次 BackToMainHub_Start：
+        // 不能写成 [JumpBack]BackToMainHub_Start + 下一个候选，BackToMainHub_Start 在主页上永远命中，
+        // [JumpBack] 回到父节点后会从 next 头部重试 → 死循环。
+        "action": {
+            "type": "Custom",
             "param": {
-                "roi": [
-                    100,
-                    470,
-                    340,
-                    570
-                ],
-                "expected": [
-                    ".*元素试炼.*"
-                ]
+                "custom_action": "DailyReturnHome"
             }
         },
-        "action": {
-            "type": "DoNothing"
-        },
-        "timeout": 2000,
+        "timeout": 60000,
         "next": [
-            "Daily_Go_ElementTrial"
+            "Daily_Challenge_Slime"
         ]
     },
     "Daily_Go_ElementTrial": {
         "max_hit": 1,
+        // 点完「前往」后回主页，由 Daily_Challenge_Fire 调用「玩法挑战」打一次火元素试炼。
         "recognition": {
-            "type": "OCR",
+            "type": "Custom",
             "param": {
-                "roi": [
-                    480,
-                    470,
-                    140,
-                    580
-                ],
-                "expected": [
-                    "前往"
-                ],
-                "order_by": "Vertical",
-                "index": 0
+                "custom_recognition": "DailyTaskRowGo",
+                "custom_recognition_param": {
+                    "title": ".*元素试炼.*"
+                }
             }
         },
         "action": {
             "type": "Click"
         },
-        "post_delay": 3500,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
-            "Daily_AlreadyOnDailyPage",
-            "Daily_BackToDailyPage"
+            "Daily_ReturnHome_Fire"
         ]
     },
-    "Daily_Task_Stamina": {
-        // 优先级 3：累积消耗体力50点。
-        "recognition": {
-            "type": "OCR",
+    "Daily_ReturnHome_Fire": {
+        // 同 Daily_ReturnHome_Slime：回主页后再调用玩法挑战打火元素试炼。
+        "action": {
+            "type": "Custom",
             "param": {
-                "roi": [
-                    100,
-                    470,
-                    340,
-                    570
-                ],
-                "expected": [
-                    ".*消耗体力.*"
-                ]
+                "custom_action": "DailyReturnHome"
             }
         },
+        "timeout": 60000,
+        "next": [
+            "Daily_Challenge_Fire"
+        ]
+    },
+    "Daily_Challenge_Slime": {
+        // 从主页调用「玩法挑战」打 1 次史莱姆宝库（默认难度 = 深渊），玩法挑战收尾会自动回主页。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "DailyChallengeGameplay",
+                "custom_action_param": {
+                    "dungeon": "史莱姆宝库",
+                    "difficulty": "深渊",
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "Daily_ResumeAfterChallenge"
+        ]
+    },
+    "Daily_Challenge_Fire": {
+        // 从主页调用「玩法挑战」打 1 次火元素试炼（默认难度 = 深渊），玩法挑战收尾会自动回主页。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "DailyChallengeGameplay",
+                "custom_action_param": {
+                    "dungeon": "火·元素试炼",
+                    "difficulty": "深渊",
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "Daily_ResumeAfterChallenge"
+        ]
+    },
+    "Daily_ResumeAfterChallenge": {
+        // 玩法挑战结束后已回到主页：重新打开每日任务页，让外层 Daily_Main 继续领奖 / 判定奖杯。
+        // 已在每日任务页时 Daily_OpenPage 不命中，由 Daily_Unwind 兜底结束本节点。
+        // 这里不能用 [JumpBack]Daily_OpenPage：next 列表只有它一个候选时，JumpBack 回到本节点会
+        // 反复重试同一个已失败节点直到 timeout（实机日志里连续 20+ 次 Daily_OpenPage 失败）。
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 2000,
+        "timeout": 20000,
         "next": [
-            "Daily_Go_Stamina"
+            "Daily_OpenPage",
+            "Daily_Unwind"
         ]
     },
-    "Daily_Go_Stamina": {
-        "max_hit": 1,
-        "recognition": {
-            "type": "OCR",
-            "param": {
-                "roi": [
-                    480,
-                    470,
-                    140,
-                    580
-                ],
-                "expected": [
-                    "前往"
-                ],
-                "order_by": "Vertical",
-                "index": 0
-            }
-        },
-        "action": {
-            "type": "Click"
-        },
-        "post_delay": 3500,
-        "timeout": 2000,
-        "next": [
-            "Daily_AlreadyOnDailyPage",
-            "Daily_BackToDailyPage"
-        ]
-    },
-    "Daily_Task_CreateRoom": {
-        // 优先级 4：创建一次房间。
-        "recognition": {
-            "type": "OCR",
-            "param": {
-                "roi": [
-                    100,
-                    470,
-                    340,
-                    570
-                ],
-                "expected": [
-                    ".*创建.*房间.*"
-                ]
-            }
-        },
+    "Daily_Unwind": {
+        // 无条件终点：Daily_ResumeAfterChallenge 里 Daily_OpenPage 没命中时走这里，
+        // 保证节点正常结束并把控制权交回外层 Daily_Main，而不是以识别失败收场。
         "action": {
             "type": "DoNothing"
-        },
-        "timeout": 2000,
-        "next": [
-            "Daily_Go_CreateRoom"
-        ]
+        }
     },
     "Daily_Go_CreateRoom": {
         "max_hit": 1,
         "recognition": {
-            "type": "OCR",
+            "type": "Custom",
             "param": {
-                "roi": [
-                    480,
-                    470,
-                    140,
-                    580
-                ],
-                "expected": [
-                    "前往"
-                ],
-                "order_by": "Vertical",
-                "index": 0
+                "custom_recognition": "DailyTaskRowGo",
+                "custom_recognition_param": {
+                    "title": ".*创建.*房间.*"
+                }
             }
         },
         "action": {
             "type": "Click"
         },
-        "post_delay": 3500,
+        "post_delay": 500,
         "timeout": 2000,
         "next": [
             "Daily_AlreadyOnDailyPage",
@@ -414,10 +401,9 @@
         ]
     },
     "Daily_AlreadyOnDailyPage": {
-        // 「已经在每日任务列表页」判定：放在各个「前往」节点 next 的首位，命中即结束该任务分支、什么都不做，
+        // 「已经在每日任务列表页」判定：创建房间的「前往」只做导航，命中即结束该分支、什么都不做，
         // 这样导航往返回来时不会在列表页上再点一次返回。
-        // TODO: 副本内的自动完成（开始挑战 → 助战选择 → 编队 → 战斗回合 → 结算）尚未实现；
-        // 当前「前往」只做导航并原路返回，见任务记录中的 EXPLORE 观察。
+        // 史莱姆宝库 / 火元素试炼已改为「前往 → 回主页 → 玩法挑战 → 回每日任务页」，不再使用本节点。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -460,7 +446,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 3000,
+        "post_delay": 500,
         "timeout": 2500
     }
 }

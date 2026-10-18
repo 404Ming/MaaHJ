@@ -1,6 +1,6 @@
 from importlib import import_module
 
-RECO_MODULES = ("general",)
+RECO_MODULES = ("general", "daily")
 
 
 def register_all() -> None:

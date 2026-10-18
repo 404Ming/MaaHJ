@@ -56,6 +56,17 @@ FREE_TEXT = "免费"
 # 「购买确认」弹窗（实测：标题 (303,265,109,33)，取消 (176,793,76,45)，价格按钮 (450,796,125,38)）。
 CONFIRM_TITLE = "购买确认"
 CANCEL_TEXT = "取消"
+# 礼包详情弹窗：点礼包卡的价格按钮不会弹网格商店那种「购买确认」，而是这个 ——
+# 标题是礼包名、正文说明、中间「商品内容」、底部一个按钮。按钮文案按商品类型分两种：
+#   「领取」= 免费礼包（每日福利，实测 box (311,834,96,56)）；
+#   「购买」= 付费礼包（冒险祈愿超值礼包 100000，实测 box (315,840,86,46)、价格 (341,794,106,32)）。
+# 两种都既没有「取消」也没有数量滑条，点弹窗外的空白/返回键才会关。
+# 识别不到它们时 _buy_card 会当成「弹窗异常」跳过：礼包买不到，而且弹窗一直盖在商店页上，
+# 后面的「每周礼包」标签页会永远识别不到（实测卡死 22 次识别）。
+CLAIM_TEXT = "领取"
+BUY_DIALOG_TEXT = "购买"
+CLAIM_CONTENT_TEXT = "商品内容"
+DIALOG_FALLBACK_POINT = (358, 862)
 DETAIL_TITLE = "物品详情"
 DETAIL_CLOSE_POINT = (617, 437)
 # 弹窗里有一根**数量滑条**：手柄拖到最右就是一次买满剩余数量，不必一件一件点。
@@ -348,8 +359,30 @@ def _card_matches(card: _Card, item: ShopItem) -> bool:
     return False
 
 
+def _dialog_action_point(lines: list[_Line], text: str) -> tuple[int, int]:
+    """礼包详情弹窗底部按钮（「领取」/「购买」）的落点。"""
+    for line in lines:
+        if line.text == text:
+            return (line.cx, line.cy)
+    return DIALOG_FALLBACK_POINT
+
+
+def _dialog_button(lines: list[_Line]) -> str:
+    """礼包详情弹窗底部的按钮文案，不是礼包详情弹窗时返回空串。
+
+    礼包详情弹窗的固定特征是正文里的「商品内容」；只看「领取」/「购买」会误伤其它页面
+    （日常任务页也有「领取」，商店页本身也可能出现「购买」字样）。
+    """
+    if not any(CLAIM_CONTENT_TEXT in line.text for line in lines):
+        return ""
+    for text in (CLAIM_TEXT, BUY_DIALOG_TEXT):
+        if any(line.text == text for line in lines):
+            return text
+    return ""
+
+
 def _dialog_state(context: Context, tries: int = 5, delay: float = 0.5) -> tuple[str, list[_Line]]:
-    """点完卡片后判定弹出的是哪个弹窗：confirm / detail / none。"""
+    """点完卡片后判定弹出的是哪个弹窗：confirm / claim / purchase / detail / none。"""
     lines: list[_Line] = []
     for _ in range(tries):
         time.sleep(delay)
@@ -357,6 +390,11 @@ def _dialog_state(context: Context, tries: int = 5, delay: float = 0.5) -> tuple
         texts = [line.text for line in lines]
         if any(CONFIRM_TITLE in text for text in texts):
             return "confirm", lines
+        button = _dialog_button(lines)
+        if button == CLAIM_TEXT:
+            return "claim", lines
+        if button == BUY_DIALOG_TEXT:
+            return "purchase", lines
         if any(DETAIL_TITLE in text for text in texts):
             return "detail", lines
     return "none", lines
@@ -407,10 +445,35 @@ def _wait_purchase_result(context: Context, tries: int = 6, delay: float = 0.6) 
     return False
 
 
-def _buy_card(context: Context, tap: tuple[int, int]) -> bool:
-    """一张卡片只走一次购买确认：把数量滑条拉满，一次买完该商品剩余的数量。
+# 弹窗盖屏时按左下角返回可以关掉它（实测礼包详情弹窗、领取弹窗都吃这一下）。
+# 页面上没有弹窗时**绝不能点**：商店页这一下会直接退出商店。
+BACK_POINT = (73, 1240)
 
-    不想「一件一件买」就是因为弹窗里有这根滑条 —— 拉满后确认一次即可。
+
+def _dismiss_stray_dialog(context: Context) -> None:
+    """收尾兜底：买完发现还留着弹窗就按返回关掉。
+
+    礼包详情弹窗一旦没被点掉就会一直盖在页面上，后面的「每周礼包」标签页再也识别不到
+    （实测卡了 22 次识别）。这里只在**正面识别到弹窗**时才动手，正常页面不会误触。
+    """
+    lines = _ocr(context, _screencap(context), FULL_ROI)
+    texts = [line.text for line in lines]
+    visible = bool(_dialog_button(lines)) or any(CONFIRM_TITLE in text for text in texts) or any(
+        DETAIL_TITLE in text for text in texts
+    )
+    if not visible:
+        return
+    logger.warning("商店购买：页面上还留着弹窗，按左下角返回关闭后再结束本页。")
+    _click(context, *BACK_POINT)
+    time.sleep(1.0)
+
+
+def _buy_card(context: Context, tap: tuple[int, int]) -> str:
+    """买/领一张卡片，返回成功方式：``"confirm"`` / ``"purchase"`` / ``"claim"`` / ``""``（失败）。
+
+    - ``confirm``：网格商店的「购买确认」弹窗，把数量滑条拉满，一次买完剩余数量；
+    - ``purchase``：礼包页的礼包详情弹窗，底部「购买」一点即扣费（没有滑条）；
+    - ``claim``：礼包页的免费礼包，弹窗底部是「领取」。
     """
     _click(context, *tap)
     state, lines = _dialog_state(context)
@@ -418,9 +481,19 @@ def _buy_card(context: Context, tap: tuple[int, int]) -> bool:
         # 点偏了点到了卡片本体：关掉详情再交给调用方重试。
         _click(context, *DETAIL_CLOSE_POINT)
         time.sleep(0.8)
-        return False
+        return ""
+    if state == "claim":
+        # 免费礼包：弹窗只有「领取」，没有数量滑条，也没有「取消」。
+        # 这个弹窗不点掉就一直盖在页面上，后面的「每周礼包」标签会永远识别不到。
+        _click(context, *_dialog_action_point(lines, CLAIM_TEXT))
+        return "claim" if _wait_purchase_result(context) else ""
+    if state == "purchase":
+        # 付费礼包：礼包详情弹窗本身就是确认页（底部「购买」，没有滑条也没有取消），
+        # 点下去才真正扣费；不点它就等于放弃购买。
+        _click(context, *_dialog_action_point(lines, BUY_DIALOG_TEXT))
+        return "purchase" if _wait_purchase_result(context) else ""
     if state != "confirm":
-        return False
+        return ""
 
     _swipe(context, CONFIRM_SLIDER_FROM, CONFIRM_SLIDER_TO, CONFIRM_SLIDER_DURATION)
     time.sleep(0.4)
@@ -428,10 +501,10 @@ def _buy_card(context: Context, tap: tuple[int, int]) -> bool:
     fresh = _ocr(context, _screencap(context), FULL_ROI)
     if not any(CONFIRM_TITLE in line.text for line in fresh):
         logger.warning("商店购买：拉数量滑条后购买确认弹窗消失了，跳过这一张。")
-        return False
+        return ""
 
     _click(context, *_buy_button_point(fresh))
-    return _wait_purchase_result(context)
+    return "confirm" if _wait_purchase_result(context) else ""
 
 
 def _is_enabled(context: Context, node: str) -> bool:
@@ -542,7 +615,14 @@ def _buy_item(
         if target.remaining <= 0:
             continue
 
-        if _buy_card(context, target.tap):
+        mode = _buy_card(context, target.tap)
+        if mode == "claim":
+            bought = True
+            logger.info(f"商店购买：已领取 {item.label}（免费礼包，领取弹窗已确认）。")
+        elif mode == "purchase":
+            bought = True
+            logger.info(f"商店购买：已购买 {item.label}（礼包详情弹窗「购买」已确认）。")
+        elif mode == "confirm":
             bought = True
             logger.info(f"商店购买：已购买 {item.label}（数量已在购买确认里拉满）。")
         else:
@@ -625,6 +705,7 @@ class ShopBuySelected(CustomAction):
             else:
                 missed_labels.append(item.label)
 
+        _dismiss_stray_dialog(context)
         logger.info(
             "商店购买：本页结束（已购买："
             + ("、".join(bought_labels) or "无")

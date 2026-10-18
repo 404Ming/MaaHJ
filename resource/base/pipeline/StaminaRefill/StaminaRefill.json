@@ -1,8 +1,17 @@
 {
+    // ⚡ 本文件所有节点的 rate_limit 都显式压到 200ms（全局 Default 是 1000）。
+    //    识别循环的语义是 `while(!timeout){ foreach(next); sleep_until(rate_limit); }`，
+    //    也就是说**每跳一次 next 至少睡 1 秒**：补体力一轮要经过
+    //    Dialog → ResetCount → Cycle → Pick → Use → QuantityMax → QuantityMinus → QuantityUsable
+    //    → DetailUse → RewardClose/DetailClose → ResetCountOnUse → Cycle 十余跳，
+    //    rate_limit=1000 时光是「等」就占掉十几秒。压到 200 后单轮从约 16s 降到约 5-6s。
+    //    同时把各节点的 post_delay / timeout 按实测动作耗时收敛（原先多处 6000ms 的超时是纯保险丝，
+    //    正常路径根本用不到，只在异常时会拖长卡死时间）。
     "StaminaRefill_Dialog": {
         // 「补充体力」弹窗存在判定：调用方（玩法挑战门控 / 仅补充体力）用它决定是否进入补体力流程；
         // 同时被三档「使用」节点当作门控引用（弹窗标题可见才允许点体力药行的按钮）。
         // 门控稳定性：ROI 覆盖整条标题带并留出余量，阈值下调到 0.2，避免标题描边/弹窗动画导致漏判。
+        "rate_limit": 200,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -21,7 +30,7 @@
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 3000,
+        "timeout": 1500,
         "next": [
             "StaminaRefill_ResetCount"
         ]
@@ -29,6 +38,7 @@
     "StaminaRefill_ResetCount": {
         // 流程入口先把命中计数清干净：Cycle 的 max_hit 是「一次补体力的消耗上限」，跨任务不能被历史次数吃掉；
         // 三档「使用」的 max_hit=1 是「本次这一档已经试过」的标记。
+        "rate_limit": 200,
         "recognition": {
             "type": "DirectHit"
         },
@@ -46,7 +56,7 @@
                 }
             }
         },
-        "timeout": 3000,
+        "timeout": 1000,
         "next": [
             "StaminaRefill_Cycle"
         ]
@@ -57,6 +67,7 @@
         // 一轮之后剩余需求必然小于一个药，下一轮由 QuantityZero 收工返回，所以正常只消耗 1-2 轮。
         // max_hit=30 是单次补体力的消耗次数上限（跨流程由 ResetCount 复位），只是界面异常时的保险。
         "max_hit": 30,
+        "rate_limit": 200,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -75,7 +86,7 @@
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 3000,
+        "timeout": 1500,
         "next": [
             "StaminaRefill_Full",
             "StaminaRefill_Pick"
@@ -84,6 +95,9 @@
     "StaminaRefill_Full": {
         // 体力已经顶到游戏上限（顶部数值 999，游戏的数量滑块就是按 999 算的）：不再消耗体力药，直接收工。
         // 实测顶部体力数值就在这个 ROI 里（如 210），满值时读作 999。
+        // timeout 显式给 1000：它只是 Cycle 的一个 next 候选，未命中会被同轮的 Pick 顶掉，
+        // 不需要留默认的 20000 去空等。
+        "rate_limit": 200,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -101,20 +115,23 @@
         "action": {
             "type": "DoNothing"
         },
+        "timeout": 1000,
         "next": [
             "StaminaRefill_Back"
         ]
     },
     "StaminaRefill_Pick": {
         // 严格优先级选档：next 的顺序就是消耗顺序（interface.json 的「体力药消耗优先级」会覆写这个列表）。
-        // timeout=4000 是给「使用」按钮留的渲染时间；三档都挑不出来（都被标记试过 / 都识别不到）才 on_error → 中断报因。
+        // timeout=2500 是给三档「使用」按钮的渲染时间；三档都挑不出来（都被标记试过 / 都识别不到）
+        // 才 on_error → 中断报因。原先 4000 偏保守，弹窗稳定后一轮 OCR 就能命中。
+        "rate_limit": 200,
         "recognition": {
             "type": "DirectHit"
         },
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 4000,
+        "timeout": 2500,
         "next": [
             "StaminaRefill_UseSmall",
             "StaminaRefill_UseStandard",
@@ -130,7 +147,9 @@
         // 背景行的「使用」仍能被识别出来）。box_index=1 让点击目标取 OCR 到的按钮框。
         // 「使田」是该按钮的常见误读（实测置信度 0.845），用 replace 归一化。
         // max_hit=1：本档这次没补成功就换下一档；成功消耗后由 ResetCountOnUse 复位。
+        // timeout=3000 是等「物品详情」弹出来的窗口（实测远小于 1s），原先 5000 在详情没弹出时会白等。
         "max_hit": 1,
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -165,8 +184,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 5000,
+        "post_delay": 500,
+        "timeout": 3000,
         "next": [
             "StaminaRefill_QuantityMax"
         ],
@@ -177,6 +196,7 @@
     "StaminaRefill_UseStandard": {
         // 标准体力补给（恢复 90 点体力）行的「使用」。
         "max_hit": 1,
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -211,8 +231,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 5000,
+        "post_delay": 500,
+        "timeout": 3000,
         "next": [
             "StaminaRefill_QuantityMax"
         ],
@@ -223,6 +243,7 @@
     "StaminaRefill_UseLuxury": {
         // 豪华体力补给（恢复 150 点体力）行的「使用」。
         "max_hit": 1,
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -257,8 +278,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 5000,
+        "post_delay": 500,
+        "timeout": 3000,
         "next": [
             "StaminaRefill_QuantityMax"
         ],
@@ -272,6 +293,8 @@
         // ceil((999-当前体力)/恢复量)（实测 148 体力拉满读作 29，用后体力显示被钳到上限 999）。
         // 拉满值就是「会溢出上限」的量，统一交给 QuantityMinus 再减 1 得到「一次消耗且不溢出」的数量。
         // 这一步只拖拽、不读数量；识别不到「物品详情」（详情没打开）才交给 PickRetry 回收。
+        // duration 600→500：拖拽本身只是把滑块甩到右端，不需要拖满 0.6s。
+        "rate_limit": 200,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -301,11 +324,11 @@
                     40,
                     26
                 ],
-                "duration": 600
+                "duration": 500
             }
         },
-        "post_delay": 400,
-        "timeout": 3000,
+        "post_delay": 500,
+        "timeout": 2000,
         "next": [
             "StaminaRefill_QuantityMinus"
         ],
@@ -320,6 +343,7 @@
         // expected 用 ^[1-9][0-9]*$ 而不是 ^\d+$：项目自带 OCR 对这条窄气泡的单字符会返回
         // 「整块 ROI」的垃圾读数（实测气泡显示 1 时读到的是 '0'、score 0.40），首字符限定 1-9 才能把
         // 「没得用」和「能用」分开，避免误点「使用」。
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -349,6 +373,7 @@
         "action": {
             "type": "DoNothing"
         },
+        "timeout": 1000,
         "next": [
             "StaminaRefill_DetailUse"
         ]
@@ -358,12 +383,14 @@
         // 游戏这时会弹「体力超出上限，超出部分将会以邮件形式发送，确认使用」并要求点「确定」，
         // 溢出部分转成邮件。所以不点「使用」，关掉「物品详情」和「补充体力」弹窗，把控制权还给调用方。
         // DirectHit 兜底：上面的 QuantityUsable 没命中就一定落到这里，既不原地空转，也不盲点「使用」。
+        "rate_limit": 200,
         "recognition": {
             "type": "DirectHit"
         },
         "action": {
             "type": "DoNothing"
         },
+        "timeout": 1000,
         "next": [
             "StaminaRefill_DetailCloseDone"
         ]
@@ -373,6 +400,7 @@
         // And 里再要求「物品详情」在场，避免详情已经关掉时误点到背后的画面。
         // 点完这一次「-」，数量就是「拉满 - 1」= floor(需求/恢复量)：>= 1 才点「使用」，
         // 为 0（含数量读不出来）就按「剩余不足一个药」收工返回。
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -397,7 +425,8 @@
                 ]
             }
         },
-        "post_delay": 300,
+        "post_delay": 500,
+        "timeout": 1500,
         "next": [
             "StaminaRefill_QuantityUsable",
             "StaminaRefill_QuantityZero"
@@ -408,6 +437,9 @@
         // 「物品详情」在场，避免误点到背后的「补充体力」弹窗按钮。
         // 点完之后要么弹「恭喜获得」（先关它），要么详情还在（关详情）；两者都认不出来说明这一步没走通，
         // 不再空转，直接走收工路径（关掉详情与弹窗，由调用方重新判断要不要再来一轮）。
+        // post_delay 统一为 500：按钮点下后弹层切换很快，靠后面的「恭喜获得」/「关闭」识别重试兜住，
+        // 不再依赖固定等待（全局 post_delay 统一 500ms）。
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -436,8 +468,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 1500,
-        "timeout": 6000,
+        "post_delay": 500,
+        "timeout": 4000,
         "next": [
             "StaminaRefill_RewardClose",
             "StaminaRefill_DetailClose"
@@ -448,6 +480,7 @@
     },
     "StaminaRefill_RewardClose": {
         // 「恭喜获得」提示：点空白区域关闭。空白位置固定，故用行文本做门控后点固定点。
+        "rate_limit": 200,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -473,8 +506,8 @@
                 ]
             }
         },
-        "post_delay": 800,
-        "timeout": 6000,
+        "post_delay": 500,
+        "timeout": 4000,
         "next": [
             "StaminaRefill_DetailClose"
         ]
@@ -482,6 +515,7 @@
     "StaminaRefill_DetailClose": {
         // 物品详情弹窗左下「关闭」（实测按钮 x 111-281 / y 801-843）：补成功，回循环继续补
         // （先复位三档「使用」的命中计数）。
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -510,8 +544,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 3000,
+        "post_delay": 500,
+        "timeout": 2000,
         "next": [
             "StaminaRefill_ResetCountOnUse"
         ]
@@ -519,6 +553,7 @@
     "StaminaRefill_ResetCountOnUse": {
         // 这一档确实消耗成功：复位三档「使用」的命中计数，下一次循环仍按优先级从第一档挑。
         // Cycle 被 max_hit 跳过（消耗到单次上限）走 on_error → CapReached 判定并报因。
+        "rate_limit": 200,
         "recognition": {
             "type": "DirectHit"
         },
@@ -535,7 +570,7 @@
                 }
             }
         },
-        "timeout": 3000,
+        "timeout": 1500,
         "next": [
             "StaminaRefill_Cycle"
         ],
@@ -545,6 +580,7 @@
     },
     "StaminaRefill_DetailCloseEmpty": {
         // 这一档这次没用成（数量读不出来 / 详情没打开等）：关掉残留的「物品详情」，回选档让下一档顶上。
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -573,14 +609,15 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 3000,
+        "post_delay": 500,
+        "timeout": 2000,
         "next": [
             "StaminaRefill_Pick"
         ]
     },
     "StaminaRefill_DetailCloseDone": {
         // 收工路径（这一步没走通）关闭详情：接着关「补充体力」弹窗，回到调用方。
+        "rate_limit": 200,
         "recognition": {
             "type": "And",
             "param": {
@@ -609,8 +646,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 3000,
+        "post_delay": 500,
+        "timeout": 2000,
         "next": [
             "StaminaRefill_Back"
         ]
@@ -619,13 +656,14 @@
         // 本档这次尝试没走通（详情没打开 / 数量读不出来）的回收口：先把可能残留的「物品详情」关掉，
         // 再回选档换下一档（本档已被 max_hit 标记为试过，不会被重复选中）。
         // 详情其实没打开时，等不到「关闭」就由 on_error 直接回选档。
+        "rate_limit": 200,
         "recognition": {
             "type": "DirectHit"
         },
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 3000,
+        "timeout": 1500,
         "next": [
             "StaminaRefill_DetailCloseEmpty"
         ],
@@ -635,6 +673,7 @@
     },
     "StaminaRefill_ItemDetail": {
         // 「物品详情」弹窗存在判定（被上面几个 And 识别引用，实测标题框 x 289-431 / y 149-196）。
+        // 纯识别节点，没有 next，不需要 rate_limit。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -658,6 +697,7 @@
         // 图片匹配左下角返回图标按钮并点其中心。
         // 没有 next 到弹窗外节点：点完即结束，调用方用 [JumpBack] 接回自己的后续节点；
         // 调用方若是直接 next 进来（仅补充体力），则本任务到此收尾。
+        "rate_limit": 200,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -676,7 +716,7 @@
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 3000,
+        "timeout": 1500,
         "next": [
             "StaminaRefill_BackClick"
         ]
@@ -703,8 +743,8 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 800,
-        "timeout": 3000
+        "post_delay": 500,
+        "timeout": 2000
     },
     "StaminaRefill_CapReached": {
         // 一次流程已消耗到上限（Cycle 的 max_hit）却还没补满：多半是体力上限判定失效（例如顶部数值读不到），
