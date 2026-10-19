@@ -19,7 +19,14 @@ from maa.custom_action import CustomAction
 from utils import logger
 from utils.params import parse_params
 
-from .gameplay_challenge import _box_center_x, _box_center_y, _ocr, _parse_times
+from .gameplay_challenge import (
+    PickSupport,
+    _box_center_x,
+    _box_center_y,
+    _ocr,
+    _parse_times,
+    _wait_for_battle_presence,
+)
 
 # 解锁进度锚点（实测 720x1280）：「探索9次开启自动探索」box (465,976,232,26)
 _HINT_ROI = (440, 955, 270, 60)
@@ -63,21 +70,41 @@ _PANEL_POLL = 1.0
 #    点击一律取识别框中心 —— 不需要为每个按钮量精确 ROI，也不会互相误命中。
 _MGD_BOTTOM_ROI = (0, 990, 720, 290)
 _CHALLENGE_TEXT = "挑战"
+# 元素自律机械挑战页（战斗结束后的落点）锚点：
+#   · 还有次数：底部挑战按钮（「挑战」/「开始战斗」二选一，按版本）＋「挑战次数：N」；
+#   · 次数用尽：按钮变成「挑战次数不足」＋「挑战次数：0」。
+# ⚠️ 不能只认「挑战」全等：挑战次数为 1 时打完一次就变「挑战次数不足」，
+#    与「挑战」全等匹配不上 → 明明完成了却被判"任务未完成"。
+# 这里用**包含匹配**，所以「挑战次数」能同时兜住「挑战次数：N」与「挑战次数不足」。
+_ELEMENT_PAGE_ANCHOR_TEXTS = ("挑战", "开始战斗", "挑战次数")
 _FORMATION_START_TEXT = "开始战斗"
 _WIN_CONTINUE_TEXT = "点击空白处继续"
 _WIN_CONFIRM_TEXT = "确认"
-# 战斗内「推进一回合」的按钮，按优先级取第一个识别到的（跳过回合 > 回合开始 > 奥义释放）：
-# 「跳过回合」是项目里既有的战斗按钮语义（战斗设置里的同名开关），出现即优先点它。
-_BATTLE_ADVANCE_TEXTS = ("跳过回合", "回合开始", "奥义释放")
-# 战斗推进的有界上限与节奏：一场战斗正常几十秒，留足余量但不无限点。
-_BATTLE_MAX_STEPS = 60
-_BATTLE_STEP_SETTLE = 1.2
-# ---- 助战选择（元素自律机械点「挑战」后会先弹这个，实测）----
-# 弹窗标题「助战选择」box (289,222,138,39)；点列表第一条（按 Rank 行 y 升序）即可进编队页。
+# ---- 战斗模块接入（与玩法挑战 GameplayChallenge / 副本挑战 DungeonChallenge 同一套语义）----
+# 战斗画面锚点：直接用战斗模块导出的 `_wait_for_battle_presence()`
+# （内部轮询 GameplayChallenge_BattlePresence：左上「战斗剩余时间」/「第N回合」）。
+_BATTLE_PRESENCE_TIMEOUT = 5.0
+# 全局任务配置「战斗设置 · 跳过回合」的开关载体（interface.json 的 global_option 覆写 enabled）。
+_SKIP_TURN_FLAG = "Flag_BattleSkipTurn"
+# 战斗中的回合按钮：**只点「跳过回合」**（与 GameplayChallenge_BattleTurn 同一套语义）。
+# ⚠️ 「回合开始」绝对不能点（点它会自己开一回合、把自动战斗带偏）；
+#    「奥义释放」是开关按钮（点一下就把奥义释放关掉），战斗推进绝不碰。
+_TURN_ROI = (180, 1070, 380, 110)  # 与 DungeonChallenge 的 _BATTLE_TURN_ROI 同口径
+_TURN_TEXT = "跳过回合"
+_TURN_WAIT_TEXTS = ("回合开始",)
+# 窄 ROI 每轮节奏（跳过回合的可点窗口很短，认到就点、点完立刻看下一帧）
+_TURN_POLL = 0.05
+# 结算判据的检查间隔（结算判据要扫整条底部带，比回合轮询贵）
+_BATTLE_RESULT_CHECK = 1.5
+# 战斗推进的有界上限：一场普通战斗正常几十秒，留足余量但不无限打。
+_BATTLE_TIMEOUT = 120.0
+# ---- 助战选择（元素自律机械点「挑战」、机神挑战点「创建房间」后都会弹，实测）----
+# 弹窗标题「助战选择」box (289,222,138,39)；条目由 PickSupport 统一处理
+# （按 interface 的「X属性编队助战」全局配置选，且点完必须校验真的进了编队页）。
 _SUPPORT_TITLE_ROI = (250, 195, 220, 75)
 _SUPPORT_TITLE_TEXT = "助战选择"
-_SUPPORT_LIST_ROI = (0, 360, 720, 820)
-_SUPPORT_ENTRY_OFFSET = 30
+# 「助战选择 / 编队页」双页轮询间隔：两页都靠 OCR 认，0.8s 比整秒等待更早接住慢加载。
+_STATE_POLL = 0.8
 # ---- 战斗结算后可能弹出的「好友申请」确认框（实测）----
 # 用了陌生玩家的助战会弹「是否向该名玩家发送好友申请」，必须点「取消」、绝不点「发送申请」。
 _FRIEND_CANCEL_ROI = (120, 815, 160, 80)
@@ -186,6 +213,25 @@ def _wait_for(context: Context, roi, wanted: str, timeout: float = _PANEL_TIMEOU
         time.sleep(_PANEL_POLL)
 
 
+def _wait_any(context: Context, roi, texts, timeout: float = _PANEL_TIMEOUT) -> bool:
+    """有界等待 ROI 内出现 texts 中**任意一个**（包含匹配），命中返回 True。
+
+    用于"战斗结束回到哪个页面"的判定：同一页面在不同状态下按钮文案会变
+    （如元素自律机械挑战页：有次数时是「开始战斗」+「挑战次数：N」，
+      次数用完则变成「挑战次数不足」），全等匹配单一文案一定会漏。
+    采用包含匹配：「挑战次数」同时兜住「挑战次数：0」与「挑战次数不足」。
+    """
+    wanted = (texts,) if isinstance(texts, str) else tuple(texts)
+    deadline = time.time() + timeout
+    while True:
+        joined = "".join(text.strip() for text, _box in _ocr(context, roi))
+        if any(item in joined for item in wanted):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(_STATE_POLL)
+
+
 def _parse_int(pattern: str, texts) -> int | None:
     """在一组 OCR 文本里按正则抓第一个整数。"""
     for text in texts:
@@ -195,42 +241,125 @@ def _parse_int(pattern: str, texts) -> int | None:
     return None
 
 
-def _pick_support(context: Context) -> bool:
-    """在「助战选择」弹窗里点最上面一条助战（按 Rank 行 y 升序），点完应进编队页。
+def _ensure_support(context: Context, formation_roi, formation_text: str) -> bool:
+    """在「助战选择」页选到**全局配置**里的助战，并校验真的进了编队页。
 
-    ⚠️ OCR 的 all_results 顺序不保证自上而下，必须按 y 升序取第一条；
-    点第一条用「Rank 行中心 y + 偏移」落到条目热区（同项目 PickSupport 的实测结论）。
+    复用 `PickSupport`（GameplayChallenge 已验证的实现）：
+      · 按 y 升序点条目，每点一次都重新确认「是否已在编队页」，没进去就换下一条（至多 3 条）；
+      · 进编队页后读队伍属性 + 已选助战 buff，与 interface 的「X属性编队助战」比对，
+        不符就点编队页「助战」回去换成符合的（至多 3 轮）；
+      · 始终找不到符合的魔物时按当前助战继续（不卡流程）。
+
+    ⚠️ 旧实现只点 Rank 最上面一条、且点完不校验：慢加载/点空时就会「没选助战直接开打」
+       （用户反馈的 1、3 两条异常）。这里不再自己写「点第一条」。
+
+    `formation_roi` / `formation_text`：编队页锚点。元素自律机械是底部「开始战斗」，
+    机神降临「创建房间」是底部「确定」。
     """
-    title = _find_in(context, _SUPPORT_TITLE_ROI, _SUPPORT_TITLE_TEXT)
-    if title is None:
-        return False
-    ranks = sorted(
-        (box for text, box in _ocr(context, _SUPPORT_LIST_ROI) if "Rank" in text),
-        key=_box_center_y,
+    try:
+        picker = PickSupport(formation_roi=list(formation_roi), formation_text=formation_text)
+        if picker.pick(context):
+            return True
+    except Exception as error:  # noqa: BLE001  助战链路异常按失败处理，但下面还有一次"是否已在编队页"的复核
+        logger.error("机神降临：助战选择流程异常：{}", error)
+
+    # 兜底：只要**确实已经站在编队页**，就按当前助战继续 —— 识别抖动不该白扔一次挑战次数。
+    # 反过来，还停在助战选择页说明助战没选上，必须返回 False（绝不带着"没选助战"去开打）。
+    if _find_in(context, formation_roi, formation_text) is not None:
+        logger.warning("机神降临：助战校验未完成，但已在编队页，按当前助战继续。")
+        return True
+    return False
+
+
+def _wait_support_or_formation(context: Context, formation_roi, formation_text: str, timeout: float) -> str | None:
+    """点「挑战 / 创建房间」后，等「助战选择」页或编队页先出现哪一个。
+
+    返回 "support" / "formation" / None（超时）。
+
+    ⚠️ 旧实现只等 3~5 秒「助战选择」，慢加载时直接落到后面的「开始战斗」判定 →
+       用户实测就是「没进助战选择就开始战斗」。这里两页同时轮询，
+       只有**真的认出编队页**才允许跳过助战选择（探索挑战那条链本来就不弹助战）。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _find_in(context, _SUPPORT_TITLE_ROI, _SUPPORT_TITLE_TEXT) is not None:
+            return "support"
+        if _find_in(context, formation_roi, formation_text) is not None:
+            return "formation"
+        time.sleep(_STATE_POLL)
+    return None
+
+
+def _run_battle_turns(context: Context, is_over, timeout: float) -> bool:
+    """战斗回合推进（**接入统一战斗模块**，而不是自己乱点按钮）。
+
+    · 先用 `GameplayChallenge_BattlePresence` 确认战斗画面已在场；
+    · 全局任务配置「战斗设置 · 跳过回合」开启（`Flag_BattleSkipTurn`）：
+      窄 ROI 高频轮询「跳过回合」，认到立刻点、点完立刻看下一帧（可点窗口很短）；
+    · 未开启：**不识别按钮、不点任何按钮**，只低频轮询结算 —— 这就是该开关的语义；
+    · 绝不点「回合开始」（会自己开一回合、把自动战斗带偏）与「奥义释放」（是开关，误点会关掉）。
+
+    `is_over()`：结算判据，由调用方提供（普通挑战只看胜利结算，机神战还要看「作战失败」）。
+    返回 True=出现结算；False=超过 `timeout` 仍未结束。
+    """
+    if not _wait_for_battle_presence(context, _BATTLE_PRESENCE_TIMEOUT):
+        logger.warning(
+            "机神降临：{} 秒内没看到战斗画面锚点（战斗剩余时间/第N回合），仍按已进入战斗继续推进。",
+            _BATTLE_PRESENCE_TIMEOUT,
+        )
+
+    skip_turn = _flag_enabled(context, _SKIP_TURN_FLAG)
+    logger.info(
+        "机神降临：战斗推进开始，全局「跳过回合」{}。",
+        "已开启 → 只点「跳过回合」" if skip_turn else "未开启 → 不点任何按钮，只等结算",
     )
-    if not ranks:
-        logger.warning("机神降临：助战选择页没识别到任何助战条目。")
-        return False
-    box = ranks[0]
-    x = _box_center_x(box)
-    y = _box_center_y(box) + _SUPPORT_ENTRY_OFFSET
-    logger.info("机神降临：点助战选择列表第一条（Rank 行 {}，点 ({}, {})）。", box, x, y)
-    context.tasker.controller.post_click(x, y).wait()
-    return True
+
+    deadline = time.time() + timeout
+    next_check = 0.0
+    roi = _TURN_ROI
+    misses = 0
+    while time.time() < deadline:
+        now = time.time()
+        if now >= next_check:
+            next_check = now + _BATTLE_RESULT_CHECK
+            if is_over():
+                return True
+
+        if not skip_turn:
+            time.sleep(_STATE_POLL)
+            continue
+
+        texts = _ocr(context, roi)
+        turn = next((box for text, box in texts if text.strip() == _TURN_TEXT), None)
+        if turn is not None:
+            misses = 0
+            _click_box(context, turn)
+            continue
+        if any(text.strip() in _TURN_WAIT_TEXTS for text, _box in texts):
+            misses = 0
+            time.sleep(_TURN_POLL)
+            continue
+
+        # 窄 ROI 连续认不到：可能是版式偏差/过场动画，退到整条底部带再试（慢一点但不漏）
+        misses += 1
+        if misses % 6 == 0 and roi != _MGD_BOTTOM_ROI:
+            roi = _MGD_BOTTOM_ROI
+        time.sleep(_TURN_POLL)
+    return False
 
 
-def _run_battle(context: Context, *, post_roi, post_text: str) -> bool:
+def _run_battle(context: Context, *, post_roi, post_texts) -> bool:
     """打完一整场「挑战」：挑战 →（助战选择）→ 开始战斗 → 战斗 → 继续 → 确认 →
-    （好友申请取消）→ 回到原页面；成功判据是 post_text 在 post_roi 重新出现。
+    （好友申请取消）→ 回到原页面；成功判据是 post_texts 中**任一**文案在 post_roi 出现。
 
     与「点探索后遇到挑战」和「元素自律机械」两条链同形，公用这一段：
       1. 底部「挑战」→ 点它；
-      2. 若弹出「助战选择」→ 点第一条进编队页（没有则说明直接进编队页）；
+      2. 若弹出「助战选择」→ 按全局配置选助战并校验进入编队页（探索挑战不弹，直接进编队页）；
       3. 等「开始战斗」→ 点它；
-      4. 有界推进战斗（跳过回合/回合开始/奥义释放，每步 1.2s，至多 60 步）；
+      4. 接入战斗模块推进回合（战斗画面锚点 + 只点「跳过回合」，受全局「跳过回合」开关控制）；
       5. 「点击空白处继续」→「确认」；
       6. 若结算后弹「好友申请」→ 点「取消」（绝不发送）；
-      7. 后置观测：post_text 在 post_roi 出现才算成功（认不到返回 False，不盲点）。
+      7. 后置观测：post_texts 任一在 post_roi 出现才算成功（认不到返回 False，不盲点）。
 
     每步有界等待；任何一步认不到都返回 False，由上层按"无进展"处理。
     """
@@ -240,9 +369,14 @@ def _run_battle(context: Context, *, post_roi, post_text: str) -> bool:
     _click_box(context, challenge)
     time.sleep(_CLICK_SETTLE)
 
-    # 助战选择（元素自律机械实测必弹；探索挑战不弹）→ 选第一条
-    if _wait_for(context, _SUPPORT_TITLE_ROI, _SUPPORT_TITLE_TEXT, 3) is not None:
-        if not _pick_support(context):
+    # 助战选择（元素自律机械实测必弹；探索挑战不弹）→ **必须**按全局配置选，且校验进了编队页
+    state = _wait_support_or_formation(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT, 15)
+    if state is None:
+        logger.warning("机神降临：点「挑战」后既没进助战选择页，也没等到编队页「开始战斗」。")
+        return False
+    if state == "support":
+        if not _ensure_support(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT):
+            logger.warning("机神降临：助战选择没有完成（未进入编队页），放弃本场挑战。")
             return False
         time.sleep(_CLICK_SETTLE)
 
@@ -253,20 +387,15 @@ def _run_battle(context: Context, *, post_roi, post_text: str) -> bool:
     _click_box(context, start)
     time.sleep(_CLICK_SETTLE)
 
-    for _step in range(_BATTLE_MAX_STEPS):
-        if (
+    def _battle_over() -> bool:
+        return (
             _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT) is not None
             or _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT) is not None
-        ):
-            break
-        for text in _BATTLE_ADVANCE_TEXTS:
-            box = _find_in(context, _MGD_BOTTOM_ROI, text)
-            if box is not None:
-                _click_box(context, box)
-                break
-        time.sleep(_BATTLE_STEP_SETTLE)
-    else:
-        logger.warning("机神降临：战斗推进超过 {} 步仍未结束，放弃处理本场挑战。", _BATTLE_MAX_STEPS)
+        )
+
+    # 战斗模块推进：只点「跳过回合」，开关关闭时完全不点
+    if not _run_battle_turns(context, _battle_over, _BATTLE_TIMEOUT):
+        logger.warning("机神降临：战斗推进超过 {} 秒仍未结束，放弃处理本场挑战。", _BATTLE_TIMEOUT)
         return False
 
     box = _wait_for(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT, 10)
@@ -284,8 +413,9 @@ def _run_battle(context: Context, *, post_roi, post_text: str) -> bool:
         _click_box(context, _find_in(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT))
         time.sleep(_CLICK_SETTLE)
 
-    if _wait_for(context, post_roi, post_text, 10) is None:
-        logger.warning("机神降临：挑战打完后没回到预期页面（认不到「{}」）。", post_text)
+    wanted = (post_texts,) if isinstance(post_texts, str) else tuple(post_texts)
+    if not _wait_any(context, post_roi, wanted, 10):
+        logger.warning("机神降临：挑战打完后没回到预期页面（认不到 {}）。", " / ".join(wanted))
         return False
     return True
 
@@ -321,7 +451,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
         if _find_in(context, _MGD_BOTTOM_ROI, _CHALLENGE_TEXT) is None:
             return False
         logger.info("机神降临：点「探索」后遇到了挑战，开始处理这一场。")
-        return _run_battle(context, post_roi=_EXPLORE_ROI, post_text=_EXPLORE_TEXT)
+        return _run_battle(context, post_roi=_EXPLORE_ROI, post_texts=(_EXPLORE_TEXT,))
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
         if not _flag_enabled(context, _AUTO_EXPLORE_FLAG):
@@ -592,9 +722,14 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
             if remaining is not None and remaining <= 0:
                 logger.info("机神降临：元素自律机械剩余可挑战次数已用尽（挑战次数：{}），提前结束。", remaining)
                 break
-            if not _run_battle(context, post_roi=_MGD_BOTTOM_ROI, post_text=_CHALLENGE_TEXT):
+            # 战后落点是**元素自律机械挑战页**（不是活动页）：
+            # 有次数时底部是「开始战斗」+「挑战次数：N」；次数用完则变成「挑战次数不足」。
+            if not _run_battle(
+                context, post_roi=_MGD_BOTTOM_ROI, post_texts=_ELEMENT_PAGE_ANCHOR_TEXTS
+            ):
                 logger.warning(
-                    "机神降临：第 {} 次挑战没能完成（认不到「挑战」或战斗未收尾），停止元素自律机械段。",
+                    "机神降临：第 {} 次挑战没能完成（认不到挑战页锚点「开始战斗」/「挑战次数」或战斗未收尾），"
+                    "停止元素自律机械段。",
                     index + 1,
                 )
                 break
@@ -612,9 +747,9 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
 # 流程：黄金之国页点「挑战」蓝圆钮 (569,854) **直接进机神挑战页（无邀请框）**；首次进页
 #   可能没有「挑战」钮 → 点「挑战机神」(596,1230) /「机神降临!!!」横幅 (246,320) → 弹
 #   「机神降临!!」邀请框（正文「是否前往挑战」+「剩余挑战次数：N」，顺带读数做次数门控）
-#   →「前往」→ 机神挑战页（LV.150 原生机神）→「创建房间」→「助战选择」(复用 _pick_support)
+#   →「前往」→ 机神挑战页（LV.150 原生机神）→「创建房间」→「助战选择」(复用 PickSupport)
 #   → 编队页「确定」→ 房间页「开始战斗」→「是否开始战斗?」确认框「确定」→ 进入战斗
-#   → 有界推进回合（跳过回合/回合开始/奥义释放，同 `_run_battle`；机神 HP 归零即胜利）
+#   → 战斗模块推进回合（只点「跳过回合」，受全局「跳过回合」开关控制；机神 HP 归零即胜利）
 #   →「战斗胜利」结算**三屏**（共享排名 → 经验 → 材料奖励）：连点「点击空白处继续」，
 #   最后点「确认」→（好友申请「取消」）→ 回到黄金之国页。
 # ⚠️ 胜利结算标题是「战斗胜利」、撤退/时间到是「作战失败」——两者文案不同；
@@ -659,11 +794,9 @@ _GOD_FORMATION_TO_ROOM_TIMEOUT = 15.0
 # 底部「撤退」按钮（实测 box (337,1202,61,31)，在 _MGD_BOTTOM_ROI 内）。
 _GOD_LOSE_RESULT_ROI = (150, 150, 420, 140)
 _GOD_LOSE_TEXT = "作战失败"
-# 战斗推进步数上限：机神战一场最长约 39 分钟（战斗剩余时间 39:xx），每步 settle 1.5s +
-# OCR ≈ 2.5s，给 1000 步（≈40 分钟）覆盖最坏情况；战斗结束以底部出现
-# 「点击空白处继续」/「确认」（胜利结算）或「作战失败」标题（失败结算）为准。
-_GOD_BATTLE_MAX_STEPS = 1000
-_GOD_BATTLE_STEP_SETTLE = 1.5
+# 战斗推进时间上限：机神战一场最长约 39 分钟（战斗剩余时间 39:xx），给 40 分钟覆盖最坏情况；
+# 战斗结束以底部出现「点击空白处继续」/「确认」（胜利结算）或「作战失败」标题（失败结算）为准。
+_GOD_BATTLE_TIMEOUT = 40 * 60.0
 # 胜利结算屏数上限（实测三屏：共享排名 → 经验 → 材料奖励；留余量到 5）
 _GOD_RESULT_MAX_SCREENS = 5
 
@@ -677,10 +810,65 @@ def _read_god_remaining(context: Context) -> int | None:
     return None
 
 
+# 菜单页标题「菜单MENU」(实测 ROI 内 OCR 为 '菜单MENU' (76,216,169,63) score 0.966)：
+# 只在**异常弹出菜单页**时命中（主页底部导航的「菜单」在 y≈1232，与这个 ROI 不相交）。
+# ⚠️ 必须用「包含」匹配：标题是「菜单MENU」整串，项目里的 `_find_in` 是**全等**匹配，
+#    用它匹配「菜单」永远不命中 → 菜单页恢复分支形同不存在（上一版就是这样继续 15s 超时的）。
+_MENU_TITLE_ROI = (60, 185, 230, 95)
+_MENU_TITLE_TEXT = "菜单"
+# 点编队「确定」后仍停在编队页（点击被动画吞掉）时，补点一次的等待阈值。
+_GOD_CONFIRM_RETRY_AFTER = 6.0
+
+
+def _wait_room_start_after_confirm(context: Context, timeout: float):
+    """点编队「确定」后等房间页「开始战斗」，并处理两种实测异常：
+
+    1. **游戏异常弹出菜单页**（用户反馈第 2 条：点完确定直接进菜单页，房间页永远出不来）：
+       **点一次左下角返回键**把它关掉，然后继续等房间页；
+    2. 首次点击被页面切换动画吞掉、仍停在编队页（「确定」还在）：补点一次「确定」。
+
+    两种恢复都有界（关菜单 ≤3 次、补点 ≤1 次）。**只有真的认出房间页「开始战斗」才返回
+    它的识别框**，绝不盲点「开始战斗」。
+    """
+    started = time.time()
+    deadline = started + timeout
+    confirm_retried = False
+    menu_closed = 0
+    while time.time() < deadline:
+        start = _find_in(context, _GOD_ROOM_START_ROI, _GOD_ROOM_START_TEXT)
+        if start is not None:
+            return start
+
+        if _find_contains(context, _MENU_TITLE_ROI, _MENU_TITLE_TEXT) is not None:
+            if menu_closed >= 3:
+                logger.warning("机神降临：菜单页反复弹出（已关 {} 次），停止本次创建房间。", menu_closed)
+                return None
+            menu_closed += 1
+            logger.warning("机神降临：点编队「确定」后异常弹出菜单页，点左下角返回关闭（第 {} 次）。", menu_closed)
+            context.tasker.controller.post_click(*_MGD_BACK_POINT).wait()
+            time.sleep(_CLICK_SETTLE)
+            continue
+
+        if not confirm_retried and time.time() - started >= _GOD_CONFIRM_RETRY_AFTER:
+            confirm = _find_in(context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT)
+            if confirm is not None:
+                confirm_retried = True
+                logger.warning(
+                    "机神降临：点「确定」{} 秒后仍停在编队页，补点一次「确定」。",
+                    _GOD_CONFIRM_RETRY_AFTER,
+                )
+                _click_box(context, confirm)
+                time.sleep(_CLICK_SETTLE)
+                continue
+
+        time.sleep(_STATE_POLL)
+    return None
+
+
 def _create_god_room(context: Context) -> bool:
     """「创建房间」模块：从机神挑战页创建房间直到进入战斗。
 
-    流程：机神挑战页「创建房间」→「助战选择」(复用 _pick_support，选第一条)
+    流程：机神挑战页「创建房间」→「助战选择」(复用 `PickSupport`，按全局配置选)
     → 编队页「确定」→ 房间页「开始战斗」→「是否开始战斗?」确认框「确定」→ 进入战斗。
     成功（已进入战斗）返回 True；任一步认不到即返回 False（不盲点）。
 
@@ -695,9 +883,16 @@ def _create_god_room(context: Context) -> bool:
     _click_box(context, create)
     time.sleep(_CLICK_SETTLE)
 
-    # 2. 助战选择（创建房间后实测必弹）→ 选第一条
-    if _wait_for(context, _SUPPORT_TITLE_ROI, _SUPPORT_TITLE_TEXT, 5) is not None:
-        if not _pick_support(context):
+    # 2. 助战选择（创建房间后实测必弹）→ **必须**按全局配置选，且校验进了编队页
+    state = _wait_support_or_formation(
+        context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT, 15
+    )
+    if state is None:
+        logger.warning("机神降临：点「创建房间」后既没进助战选择页，也没等到编队页「确定」。")
+        return False
+    if state == "support":
+        if not _ensure_support(context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT):
+            logger.warning("机神降临：助战选择没有完成（未进入编队页），放弃本次创建房间。")
             return False
         time.sleep(_CLICK_SETTLE)
 
@@ -713,7 +908,9 @@ def _create_god_room(context: Context) -> bool:
     #    这里是「助战选择完成、点编队『确定』→ 下一个节点」之间的**超时判断点**（用户要求）：
     #    超过 _GOD_FORMATION_TO_ROOM_TIMEOUT 还看不到房间页（卡编队页 / 弹窗盖住 / 断线 / 加载不出来），
     #    就进**公共异常处理流程** Exception_Start，再返回 False 结束本次（不盲点「开始战斗」）。
-    start = _wait_for(context, _GOD_ROOM_START_ROI, _GOD_ROOM_START_TEXT, _GOD_FORMATION_TO_ROOM_TIMEOUT)
+    #    ⚠️ 实测异常（用户反馈第 2 条）：点「确定」后游戏会莫名弹出**菜单页**，房间页根本出不来。
+    #       所以这里不用裸 `_wait_for`，改走带恢复的等待：关菜单页 / 补点一次「确定」。
+    start = _wait_room_start_after_confirm(context, _GOD_FORMATION_TO_ROOM_TIMEOUT)
     if start is None:
         logger.error(
             "机神降临：点编队「确定」后 {} 秒内没进到房间页「开始战斗」，进入公共异常处理流程。",
@@ -738,9 +935,9 @@ def _run_god_battle(context: Context) -> str:
     流程（用户全流程截图 11-21 逐跳印证）：
       1. 黄金之国页点「挑战」蓝圆钮**直接进机神挑战页（无邀请框）**；没有则点
          「挑战机神」/「机神降临!!!」横幅 → 邀请框（顺带读剩余挑战次数）→「前往」；
-      2. 机神挑战页「创建房间」→「助战选择」(复用 _pick_support) → 编队「确定」
+      2. 机神挑战页「创建房间」→「助战选择」(复用 `PickSupport`，按全局配置选) → 编队「确定」
          → 房间「开始战斗」→「是否开始战斗?」确认「确定」→ 进入战斗；
-      3. 有界推进回合（同 `_run_battle`：跳过回合/回合开始/奥义释放）；机神 HP 归零
+      3. 战斗模块推进回合（同 `_run_battle`：战斗画面锚点 + 只点「跳过回合」，受全局开关控制）；机神 HP 归零
          「战斗胜利」结算三屏（共享排名 → 经验 → 材料奖励）→ 连点「点击空白处继续」
          →「确认」→（好友申请「取消」）→ 回到黄金之国页。
     """
@@ -781,29 +978,26 @@ def _run_god_battle(context: Context) -> str:
     if not _create_god_room(context):
         return "fail"
 
-    # 7. 战斗：有界推进回合（同 `_run_battle` 的推进；机神 HP 归零即胜利）
-    for _step in range(_GOD_BATTLE_MAX_STEPS):
+    # 7. 战斗：接入战斗模块推进回合（只点「跳过回合」，受全局「跳过回合」开关控制；机神 HP 归零即胜利）
+    def _god_battle_over() -> bool:
         # 胜利/失败结算都以底部按钮或失败标题出现为准
-        if (
+        return (
             _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT) is not None
             or _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT) is not None
-        ):
-            break
-        if _find_in(context, _GOD_LOSE_RESULT_ROI, _GOD_LOSE_TEXT) is not None:
-            logger.warning("机神降临：机神战「作战失败」（时间到/全员阵亡），点底部「撤退」退出。")
-            exit_box = _find_in(context, _MGD_BOTTOM_ROI, "撤退")
-            if exit_box is not None:
-                _click_box(context, exit_box)
-                time.sleep(_CLICK_SETTLE)
-            return "fail"
-        for text in _BATTLE_ADVANCE_TEXTS:
-            box = _find_in(context, _MGD_BOTTOM_ROI, text)
-            if box is not None:
-                _click_box(context, box)
-                break
-        time.sleep(_GOD_BATTLE_STEP_SETTLE)
-    else:
-        logger.warning("机神降临：战斗推进超过 {} 步仍未结束，放弃本场。", _GOD_BATTLE_MAX_STEPS)
+            or _find_in(context, _GOD_LOSE_RESULT_ROI, _GOD_LOSE_TEXT) is not None
+        )
+
+    if not _run_battle_turns(context, _god_battle_over, _GOD_BATTLE_TIMEOUT):
+        logger.warning("机神降临：战斗推进超过 {} 秒仍未结束，放弃本场。", _GOD_BATTLE_TIMEOUT)
+        return "fail"
+
+    # 7.5 失败结算（时间到/全员阵亡）：点底部「撤退」退出
+    if _find_in(context, _GOD_LOSE_RESULT_ROI, _GOD_LOSE_TEXT) is not None:
+        logger.warning("机神降临：机神战「作战失败」（时间到/全员阵亡），点底部「撤退」退出。")
+        exit_box = _find_in(context, _MGD_BOTTOM_ROI, "撤退")
+        if exit_box is not None:
+            _click_box(context, exit_box)
+            time.sleep(_CLICK_SETTLE)
         return "fail"
 
     # 8. 胜利结算三屏（共享排名 → 经验 → 材料奖励）：连点「点击空白处继续」，最后「确认」
@@ -841,8 +1035,8 @@ class MachineGodDescentGodChallenge(CustomAction):
       1. 黄金之国页点「挑战」蓝圆钮**直接进机神挑战页**（无邀请框）；没有则点
          「挑战机神」/「机神降临!!!」横幅 → 弹邀请框 → 读「剩余挑战次数：N」（N 用尽则
          关框提前结束）→ 点「前往」进机神挑战页；
-      2. 创建房间 → 助战选择(第一条) → 编队「确定」→ 房间「开始战斗」→ 确认「确定」→ 进战斗；
-      3. 有界推进回合（跳过回合/回合开始/奥义释放）；机神 HP 归零 →「战斗胜利」结算
+      2. 创建房间 → 助战选择(按全局配置) → 编队「确定」→ 房间「开始战斗」→ 确认「确定」→ 进战斗；
+      3. 战斗模块推进回合（只点「跳过回合」，受全局开关控制）；机神 HP 归零 →「战斗胜利」结算
          三屏（共享排名 → 经验 → 材料奖励）→ 连点「点击空白处继续」→「确认」；
          时间到/阵亡 →「作战失败」→「撤退」（本场计失败，循环停止）；
       4. 按 times 循环；最后交给上层返回主页。
