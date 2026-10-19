@@ -5,6 +5,8 @@ ACTION_MODULES = (
     "gameplay_challenge",
     "machine_god_descent",
     "dungeon_challenge",
+    "auto_idle",
+    "_auto_idle_survey",
     "shop",
     "stamina_refill",
     "weekly_dispatch",

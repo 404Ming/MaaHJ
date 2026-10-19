@@ -10,7 +10,10 @@ Pipeline（``resource/base/pipeline/Shop/Shop.json``）负责导航与监督，�
   「售罄」。点击落点取价格条中心 —— 实测点价格条才会弹「购买确认」，点名称/图标只会弹
   「物品详情」。
 - ``gift``：折扣礼包页的礼包卡。每张卡片是 名称 → 图标 → ``每日:0/1`` → 礼包包含 →
-  价格按钮（``100000`` / ``免费``），售罄时限购行被「售罄」盖住。
+  价格按钮（``100000`` / ``180`` / ``免费``），售罄时限购行被「售罄」盖住。
+  **礼包页只买第一行（左=1 号位、右=2 号位）**：礼包名随活动轮换，但每页只有第一行是可买的，
+  下面几行即使也显示「每日:0/1」也不碰（用户明确要求）。整段购买过程**不做任何划屏**
+  （不回滚到顶、不翻页），只在导航阶段点侧栏/页签。
 
 勾选来源：每件可选商品在 ``ShopItems.json`` 里有一个载体节点 ``ShopPick_*``，
 interface.json 的 checkbox case 只把对应节点的 ``enabled`` 置 true；本模块用
@@ -107,6 +110,10 @@ _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")  # 名称一定含中文
 _GIFT_NAME_ABOVE = (200, 120)  # 名称在限购行上方 120~200px（实测 159）
 _GIFT_PRICE_BELOW = (90, 200)  # 价格按钮在限购行下方 90~200px（实测 107~175）
 _GIFT_SOLD_AROUND = (30, 30)  # 售罄标记直接盖在限购行上
+# 礼包页只买第一行的两张卡（1 号位 / 2 号位）。实测：第一行价格按钮 y≈850，
+# 第二行 y≈1269，差 400px 以上，60px 容差足够区分同行/异行。
+_GIFT_ROW_SLOTS = 2
+_GIFT_ROW_TOLERANCE = 60
 _COLUMN_TOLERANCE = 90
 
 # 每次扫描找不到目标就翻一页，翻页次数上限（列表约 24 行，正常 12 页内到底）。
@@ -337,6 +344,21 @@ def _cards_for(layout: str, lines: list[_Line]) -> list[_Card]:
     return _gift_cards(lines) if layout == "gift" else _grid_cards(lines)
 
 
+def _first_row(cards: list[_Card]) -> list[_Card]:
+    """礼包页的第一行（1、2 号位）：按落点 y 取最上面、且同一行的卡片。
+
+    实测每日礼包页第一行价格按钮 y≈850（冒险祈愿超值礼包 / 冒险祈愿钜惠礼包），
+    第二行 y≈1269。买完一张后列表会上移，所以调用方要用这一行**拍快照**，
+    否则原来的第二行会被顶上来当成 1 号位买掉。
+    """
+    if not cards:
+        return []
+    ordered = sorted(cards, key=lambda card: card.tap[1])
+    top = ordered[0].tap[1]
+    row = [card for card in ordered if card.tap[1] - top <= _GIFT_ROW_TOLERANCE]
+    return row[:_GIFT_ROW_SLOTS]
+
+
 def _normalize(text: str) -> str:
     """去掉尾部省略号与空白，用于前缀匹配（OCR 对省略号个数不稳定）。"""
     return text.rstrip(".．。…·、,， \t")
@@ -381,8 +403,12 @@ def _dialog_button(lines: list[_Line]) -> str:
     return ""
 
 
-def _dialog_state(context: Context, tries: int = 5, delay: float = 0.5) -> tuple[str, list[_Line]]:
-    """点完卡片后判定弹出的是哪个弹窗：confirm / claim / purchase / detail / none。"""
+def _dialog_state(context: Context, tries: int = 8, delay: float = 0.6) -> tuple[str, list[_Line]]:
+    """点完卡片后判定弹出的是哪个弹窗：confirm / claim / purchase / detail / none。
+
+    轮询要留够时间：模拟器上礼包弹窗偶尔 2~3 秒才出来，旧参数（5×0.5s）会在弹窗还没出来时
+    就判成 none，于是「明明可买却报没买成」，还会把弹窗留给后面的标签页（实测每周礼包页踩到过）。
+    """
     lines: list[_Line] = []
     for _ in range(tries):
         time.sleep(delay)
@@ -493,6 +519,13 @@ def _buy_card(context: Context, tap: tuple[int, int]) -> str:
         _click(context, *_dialog_action_point(lines, BUY_DIALOG_TEXT))
         return "purchase" if _wait_purchase_result(context) else ""
     if state != "confirm":
+        # 直接发放型（折扣礼包页的免费福利就是这么发的）：点下去就发奖，只弹一个
+        # 「点击空白区域关闭」的奖励提示，没有购买确认、也没有「商品内容」详情。
+        # 旧逻辑会走到这里返回失败，于是「已领到」被记成「没买成」，提示还盖在页面上。
+        if any(CLOSE_HINT in line.text for line in lines):
+            _click(context, *CLOSE_POPUP_POINT)
+            time.sleep(0.8)
+            return "claim"
         return ""
 
     _swipe(context, CONFIRM_SLIDER_FROM, CONFIRM_SLIDER_TO, CONFIRM_SLIDER_DURATION)
@@ -575,11 +608,16 @@ def _buy_item(
     layout: str,
     roi: tuple[int, int, int, int],
     max_scrolls: int,
+    allowed_names: set[str] | None = None,
 ) -> int:
     """把一件商品买到限购上限，返回实际买到的数量。
 
     每次购买成功后都重新截图重扫：买满限购的商品会从列表消失、售罄的会沉到最下面，
     所以不能用固定的行列位置，也不能缓存上一次的解析结果。
+
+    ``allowed_names`` 给定时只在这几个礼包名里找（折扣礼包页用 1、2 号位的快照限定范围），
+    并且不会向下翻页 —— 第一行买不到就是买不到，绝不顺手下移去买第二行。
+    这种情况下整段**不做任何划屏**：不进顶部回滚、也不翻页（用户明确要求去掉折扣礼包购买时的划屏动作）。
     """
     bought = False
     handled: set[str] = set()
@@ -588,16 +626,23 @@ def _buy_item(
 
     # 每件商品都从列表顶部开始扫：上一件（尤其是不存在、扫到底才放弃的那件）会把列表留在底部，
     # 不从顶部重来就会漏掉排在它前面的商品。
-    _scroll_content_to_top(context)
+    # 折扣礼包（allowed_names 限定第一行）不走这一步：只买 1、2 号位，划屏纯属多余动作。
+    if allowed_names is None:
+        _scroll_content_to_top(context)
 
     while True:
         lines = _ocr(context, _screencap(context), roi)
         cards = _cards_for(layout, lines)
+        if allowed_names is not None:
+            cards = [card for card in cards if not card.nameless and _normalize(card.name) in allowed_names]
         target = next(
             (card for card in cards if card.key not in handled and _card_matches(card, item)),
             None,
         )
         if target is None:
+            if allowed_names is not None:
+                # 1、2 号位限定：这一行里没有该商品就是没有，不翻页。
+                break
             signature = frozenset(line.text for line in lines)
             fresh = signature - seen_text
             seen_text |= signature
@@ -627,6 +672,8 @@ def _buy_item(
             logger.info(f"商店购买：已购买 {item.label}（数量已在购买确认里拉满）。")
         else:
             logger.warning(f"商店购买：{item.label} 这一次没买成（售罄 / 余额不足 / 弹窗异常），跳过这一张。")
+            if allowed_names is not None:
+                break
             scrolls += 1
             if scrolls > max_scrolls:
                 break
@@ -693,6 +740,19 @@ class ShopBuySelected(CustomAction):
         logger.info(f"商店购买：{group} 分组本页要买 " + "、".join(item.label for item in selected))
         layout = GROUP_LAYOUT[group]
 
+        # 折扣礼包页只认第一行（左=1 号位、右=2 号位）。这里先给第一行拍一次快照：
+        # 买完一张后列表整体上移，不锁住的话原来的第二行会被顶上来当成 1 号位买掉。
+        # 不先划屏回顶：页签刚切过来就是顶部，划屏只是多余的屏幕动作（用户要求去掉）。
+        allowed_names: set[str] | None = None
+        if layout == "gift":
+            allowed_names = {
+                _normalize(card.name) for card in _first_row(_gift_cards(_ocr(context, _screencap(context), roi)))
+            }
+            if not allowed_names:
+                logger.warning("商店购买：折扣礼包页没识别到第一行（1、2 号位）的礼包，本次不买任何礼包。")
+                return CustomAction.RunResult(success=True)
+            logger.info("商店购买：折扣礼包页 1、2 号位 = " + "、".join(sorted(allowed_names)))
+
         bought_labels: list[str] = []
         missed_labels: list[str] = []
         for item in selected:
@@ -700,7 +760,7 @@ class ShopBuySelected(CustomAction):
             # （例如 冒险祈愿超值礼包 在每日礼包页与每周礼包页各有一个不同 SKU）。
             if not _is_enabled(context, item.node):
                 continue
-            if _buy_item(context, item, layout, roi, max_scrolls):
+            if _buy_item(context, item, layout, roi, max_scrolls, allowed_names):
                 bought_labels.append(item.label)
             else:
                 missed_labels.append(item.label)

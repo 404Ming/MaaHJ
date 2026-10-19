@@ -83,7 +83,9 @@ _BADGE: tuple[ShopItem, ...] = (
     ShopItem("ShopPick_Badge_017", "badge", "长空祈愿之力", (("长空祈愿之力", "4000"),)),
     ShopItem("ShopPick_Badge_018", "badge", "长空祈愿之终", (("长空祈愿之终", "4000"),)),
     ShopItem("ShopPick_Badge_019", "badge", "长空祈愿之视", (("长空祈愿之视", "4000"),)),
-    ShopItem("ShopPick_Badge_020", "badge", "星间通信书", (("星间通信书", "2000"),)),
+    # 征伐印记商店的星间通信书价格会随轮换变（枚举到的是 2000），与公会商店一致：
+    # **购买时不区分价格**，同名的卡片都算这一件，各自买到自己的限购上限。
+    ShopItem("ShopPick_Badge_020", "badge", "星间通信书", (("星间通信书", None),)),
     ShopItem("ShopPick_Badge_021", "badge", "天使之羽", (("天使之羽", "500"),)),
     ShopItem("ShopPick_Badge_022", "badge", "虚界之镰", (("虚界之镰", "500"),)),
     ShopItem("ShopPick_Badge_023", "badge", "幻影之眼", (("幻影之眼", "700"),)),

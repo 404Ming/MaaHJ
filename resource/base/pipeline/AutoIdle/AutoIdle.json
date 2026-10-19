@@ -1,0 +1,710 @@
+{
+    // 「自动挂机」任务：主页右下「战斗列表」→「自动挂机」→ 按任务设置勾选副本难度 →「确定」。
+    // 全部交互都在 Python（AutoIdleRun）里，实机 720x1280 逐跳印证：
+    //   主页「战斗列表」→ 战斗列表页「自动挂机」→「选择要挂机的副本」弹窗
+    //   →「重置」清空历史勾选 → 按系列展开、点开副本卡片读标题、勾难度 →「确定」
+    //   → 外层「确定」→ 战斗画面出现「自动挂机中」= 启动成功，否则重走一遍（最多 3 次）。
+    // ⚠️ 会真实开始挂机（连续自动战斗、消耗 BP）。一个难度都没勾选时整段跳过。
+    // timeout：挂机是长流程（含多次战斗/加载），给足 1 小时后由客户端停止兜底。
+    "AutoIdle_Start": {
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "AutoIdleRun",
+                "custom_action_param": {}
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "AutoIdle_Done"
+        ]
+    },
+    "AutoIdle_Done": {
+        // 终态：启动自动挂机后立刻收尾（挂机本身由游戏自己跑，不需要本任务继续陪着）。
+        // 无条件节点，保证任务以成功收尾。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // ---- 任务设置载体节点（纯数据，不被任何 next 引用、永不执行）----------------------
+    // ⚠️ 必须全部**预定义**：pipeline_override 只做属性合并、不会创建节点，
+    //    少了它们客户端的勾选会静默失效（get_node_data 拿到 None）。
+    // 一个 (副本 × 难度) 一个节点：checkbox 的每个 case 只能覆写不同节点的 enabled。
+    // 王国灾厄
+    "AutoIdle_S1_01_Normal": {
+        // 野猪统领 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_01_Hard": {
+        // 野猪统领 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_01_Nightmare": {
+        // 野猪统领 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_02_Normal": {
+        // 青鬃熊 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_02_Hard": {
+        // 青鬃熊 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_02_Nightmare": {
+        // 青鬃熊 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_03_Normal": {
+        // 狂暴树精 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_03_Hard": {
+        // 狂暴树精 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_03_Nightmare": {
+        // 狂暴树精 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_04_Normal": {
+        // 猩猩王 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_04_Hard": {
+        // 猩猩王 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_04_Nightmare": {
+        // 猩猩王 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L1": {
+        // 恶魔康斯洛特 · 难度1
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L2": {
+        // 恶魔康斯洛特 · 难度2
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L3": {
+        // 恶魔康斯洛特 · 难度3
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L4": {
+        // 恶魔康斯洛特 · 难度4
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L5": {
+        // 恶魔康斯洛特 · 难度5
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L6": {
+        // 恶魔康斯洛特 · 难度6
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L7": {
+        // 恶魔康斯洛特 · 难度7
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L8": {
+        // 恶魔康斯洛特 · 难度8
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L9": {
+        // 恶魔康斯洛特 · 难度9
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S1_05_L10": {
+        // 恶魔康斯洛特 · 难度10
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 始源巨兽
+    "AutoIdle_S2_01_Normal": {
+        // 米劳罗 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_01_Hard": {
+        // 米劳罗 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_01_Nightmare": {
+        // 米劳罗 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_02_Normal": {
+        // 潘塔菲卡 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_02_Hard": {
+        // 潘塔菲卡 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_02_Nightmare": {
+        // 潘塔菲卡 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_03_Normal": {
+        // 苏尔特尔 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_03_Hard": {
+        // 苏尔特尔 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_03_Nightmare": {
+        // 苏尔特尔 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_04_Normal": {
+        // 赫拉斯瓦尔格 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_04_Hard": {
+        // 赫拉斯瓦尔格 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_04_Nightmare": {
+        // 赫拉斯瓦尔格 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_05_Normal": {
+        // 卡律布狄斯 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_05_Hard": {
+        // 卡律布狄斯 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_05_Nightmare": {
+        // 卡律布狄斯 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_06_Normal": {
+        // 伊南娜 · 普通
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_06_Hard": {
+        // 伊南娜 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_06_Nightmare": {
+        // 伊南娜 · 噩梦
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L1": {
+        // 魔君诺维克 · 难度1
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L2": {
+        // 魔君诺维克 · 难度2
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L3": {
+        // 魔君诺维克 · 难度3
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L4": {
+        // 魔君诺维克 · 难度4
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L5": {
+        // 魔君诺维克 · 难度5
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L6": {
+        // 魔君诺维克 · 难度6
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L7": {
+        // 魔君诺维克 · 难度7
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L8": {
+        // 魔君诺维克 · 难度8
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L9": {
+        // 魔君诺维克 · 难度9
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S2_07_L10": {
+        // 魔君诺维克 · 难度10
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 神祝之翼
+    "AutoIdle_S3_01_Hard": {
+        // 迪亚波罗 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_02_Hard": {
+        // 斯文托维特 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_03_Hard": {
+        // 欧若拉 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_04_Hard": {
+        // 阿格莱亚 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_05_Hard": {
+        // 太阿 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_06_Hard": {
+        // 戈舆 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L1": {
+        // 女武神艾莉瑞尔 · 难度1
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L2": {
+        // 女武神艾莉瑞尔 · 难度2
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L3": {
+        // 女武神艾莉瑞尔 · 难度3
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L4": {
+        // 女武神艾莉瑞尔 · 难度4
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L5": {
+        // 女武神艾莉瑞尔 · 难度5
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L6": {
+        // 女武神艾莉瑞尔 · 难度6
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L7": {
+        // 女武神艾莉瑞尔 · 难度7
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L8": {
+        // 女武神艾莉瑞尔 · 难度8
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L9": {
+        // 女武神艾莉瑞尔 · 难度9
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S3_07_L10": {
+        // 女武神艾莉瑞尔 · 难度10
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 烛之造物
+    "AutoIdle_S4_01_Hard": {
+        // 焚尽花 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_02_Hard": {
+        // 和音傀 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_03_Hard": {
+        // 欲望泉 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_04_Hard": {
+        // 断裁偶 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_05_Hard": {
+        // 绝罚刺 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_06_Hard": {
+        // 虚妄冠 · 困难
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L1": {
+        // 孕星烛母 · 难度1
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L2": {
+        // 孕星烛母 · 难度2
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L3": {
+        // 孕星烛母 · 难度3
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L4": {
+        // 孕星烛母 · 难度4
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L5": {
+        // 孕星烛母 · 难度5
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L6": {
+        // 孕星烛母 · 难度6
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L7": {
+        // 孕星烛母 · 难度7
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L8": {
+        // 孕星烛母 · 难度8
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L9": {
+        // 孕星烛母 · 难度9
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S4_07_L10": {
+        // 孕星烛母 · 难度10
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    // 神骸试炼
+    "AutoIdle_S5_01_Single": {
+        // 天阳御者·法厄同
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_02_Single": {
+        // 登神天马·柏勒洛丰
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_03_Single": {
+        // 屠魔英仙·珀尔修斯
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_04_Single": {
+        // 净世猎手·俄里翁
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L1": {
+        // 无终冥士·俄耳浦斯 · 难度1
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L2": {
+        // 无终冥士·俄耳浦斯 · 难度2
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L3": {
+        // 无终冥士·俄耳浦斯 · 难度3
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L4": {
+        // 无终冥士·俄耳浦斯 · 难度4
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L5": {
+        // 无终冥士·俄耳浦斯 · 难度5
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L6": {
+        // 无终冥士·俄耳浦斯 · 难度6
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L7": {
+        // 无终冥士·俄耳浦斯 · 难度7
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L8": {
+        // 无终冥士·俄耳浦斯 · 难度8
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L9": {
+        // 无终冥士·俄耳浦斯 · 难度9
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "AutoIdle_S5_05_L10": {
+        // 无终冥士·俄耳浦斯 · 难度10
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

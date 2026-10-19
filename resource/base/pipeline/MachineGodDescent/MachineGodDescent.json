@@ -231,7 +231,9 @@
             }
         },
         "timeout": 120000,
-        "next": ["MachineGodDescent_GodChallenge"]
+        // 优先级：元素自律机械 > 机神降临（用户要求）。两者都开启时先打自律机械，
+        // 打完由该段自己退回机神降临页，再交给下一段机神挑战。
+        "next": ["MachineGodDescent_ElementMachine"]
     },
     "MachineGodDescent_GodChallenge": {
         // 挑战「机神降临」（用户需求，仿照元素自律机械）：机神降临页点「挑战机神」/
@@ -256,7 +258,8 @@
             }
         },
         "timeout": 3000000,
-        "next": ["MachineGodDescent_ElementMachine"]
+        // 机神降临是两段挑战里的**后手**（自律机械优先）：本段结束后直接收尾回主页。
+        "next": ["MachineGodDescent_BackHome"]
     },
     "MachineGodDescent_ElementMachine": {
         // 挑战「元素自律机械」（用户第四段需求）：进入挑战页 → 按设置次数重复
@@ -275,7 +278,8 @@
             }
         },
         "timeout": 600000,
-        "next": ["MachineGodDescent_BackHome"]
+        // 自律机械优先：本段跑完先把页面退回机神降临页（入口在段尾动作里），再交给机神降临挑战段。
+        "next": ["MachineGodDescent_GodChallenge"]
     },
     "MachineGodDescent_BackHome": {
         // 收尾：返回主页（机神降临页 → 活动一览 → 菜单页 → 主页，退三级）。

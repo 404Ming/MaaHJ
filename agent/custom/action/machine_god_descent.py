@@ -482,7 +482,7 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
 # ---- 第四段：挑战「元素自律机械」（用户提供流程 + 实测截图）--------------------------
 # 流程：机神降临界面**左上角**「元素自律机械」→ 进入挑战页 → 「挑战」→ 助战选择 →「开始战斗」
 #   → 本活动**没有**「挑战下一关」，所以战斗结束点「确认」回到自律机械挑战页
-#   → 按设置次数重复（打满或次数不足就停）→ 返回主页。
+#   → 按设置次数重复（打满或次数不足就停）→ 退回机神降临页（下一段机神降临挑战要从那里进）。
 # 其中「挑战 → 助战选择 → 编队开始战斗 → 战斗 → 战斗胜利继续 → 确认 →（好友申请取消）
 # → 回到本页」这一段与「点探索后遇到挑战」**同形**，统一复用 `_run_battle`。
 _ELEMENT_MACHINE_FLAG = "MachineGodDescent_Flag_ElementMachineChallenge"
@@ -493,6 +493,34 @@ _ELEMENT_ENTRY_TEXT = "元素自律机械"
 # 在底部「挑战」按钮正上方；与机神降临页左上角那个「次数：N」不是同一处。
 _ELEMENT_REMAIN_ROI = (250, 980, 230, 70)
 _ELEMENT_REMAIN_PATTERN = re.compile(r"挑战次数\s*[:：]\s*(\d+)")
+
+
+# 自律机械挑战页左下角返回（与公共返回节点 BackToMainHub_Back 实测同一枚图标 (52,1226,45,29)）。
+_MGD_BACK_POINT = (74, 1240)
+
+
+def _back_to_mgd_page(context: Context, tries: int = 3) -> bool:
+    """从「元素自律机械」挑战页退回机神降临页；不在挑战页时零开销 no-op。
+
+    为什么需要它：任务设置里两段挑战都开启时，**自律机械优先**（用户要求），
+    而下一段「机神降临挑战」要从机神降临页的「挑战」/「挑战机神」入口进 ——
+    停在自律机械挑战页会让它认不到入口直接判失败。所以本段结束必须把页面交还。
+
+    判据用挑战页**独有**的底部读数「挑战次数：N」（机神降临页那里写作「次数：N」，
+    左上角还有「元素自律机械」入口），读不到就认为已经不在挑战页，绝不盲点。
+    """
+    for _ in range(tries):
+        if _read_element_remaining(context) is None:
+            break
+        context.tasker.controller.post_click(*_MGD_BACK_POINT).wait()
+        time.sleep(_CLICK_SETTLE)
+    if _read_element_remaining(context) is not None:
+        logger.warning("机神降临：自律机械段结束后仍停在挑战页（还能读到「挑战次数」），机神降临挑战段可能认不到入口。")
+        return False
+    if _find_in(context, _ELEMENT_ENTRY_ROI, _ELEMENT_ENTRY_TEXT) is None:
+        logger.warning("机神降临：已退出自律机械挑战页，但没看到「元素自律机械」入口，机神降临挑战段可能认不到入口。")
+        return False
+    return True
 
 
 def _read_element_remaining(context: Context) -> int | None:
@@ -518,7 +546,8 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
          · 先读挑战页底部「挑战次数：N」（**剩余可挑战次数**）——N=0 就提前结束；
          · 打一场：挑战 → 助战选择(第一条) → 编队「开始战斗」→ 战斗 → 「点击空白处继续」
            →「确认」→（好友申请「取消」）→ 回到挑战页（统一走 `_run_battle`）；
-      3. 打满 times 或剩余次数不足即结束，由上层 `MachineGodDescent_BackHome` 返回主页。
+      3. 打满 times 或剩余次数不足即结束；**结束时把页面退回机神降临页**，交给下一段
+         `MachineGodDescent_GodChallenge`（自律机械优先于机神降临）。
 
     ⚠️ times 来自任务设置「自律机械挑战次数」（1-99999），是**要打的次数**；
        挑战页读到的「挑战次数：N」是**剩余可挑战次数**，只用来判断还能不能打。
@@ -573,6 +602,9 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
             logger.info("机神降临：元素自律机械第 {}/{} 次挑战完成。", done, times)
 
         logger.info("机神降临：元素自律机械段结束，共完成 {}/{} 次。", done, times)
+        # 收回页面：下一段是机神降临挑战（自律机械优先），它要在机神降临页认「挑战」/「挑战机神」入口。
+        # 停在自律机械挑战页会让它认不到入口直接放弃，所以这里必须退回机神降临页。
+        _back_to_mgd_page(context)
         return CustomAction.RunResult(success=True)
 
 

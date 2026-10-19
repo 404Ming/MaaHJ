@@ -20,11 +20,27 @@ KNOWN_TASKS = [
     (r"抽卡", "gacha", None),
 ]
 
-# 祈愿池名 -> 识别用正则：美术字标题 OCR 不稳定，只放宽易错字符，保留首字避免误命中其它池。
-POOL_EXPECTED = {
-    "友情祈愿": "友.祈愿",
-    "冒险祈愿": "冒险祈愿",
+# 祈愿池名 -> 识别用正则。
+# 池名是美术字，OCR 实测会丢字/串字/繁简混用：
+#   「友情祈愿」→ 友倩祈愿 / 友宿祈愿 / 友祈愿(丢字)
+#   「冒险祈愿」→ 冒險祈願(繁体)
+# 因此统一用「首字 + 0~3 个任意字符 + 末字(含繁简)」：首字是各池唯一的区分点，
+# 末端放宽到繁简两种写法，中间允许 OCR 抖动。对应 Wish_VerifyPool / Wish_SelectPool 的 override。
+POOL_LAST_CHAR_VARIANTS = {
+    "愿": "[愿願]",
+    "請": "[请請]",
+    "请": "[请請]",
 }
+
+
+def pool_pattern(pool: str) -> str:
+    """把池名转成容错正则；单字池名退化为精确匹配。"""
+    if len(pool) < 2:
+        return re.escape(pool)
+    head = re.escape(pool[0])
+    tail = POOL_LAST_CHAR_VARIANTS.get(pool[-1], re.escape(pool[-1]))
+    return f"{head}.{{0,3}}{tail}"
+
 
 # 行定位：周常列表里「前往」按钮可能在标题下方约 60px，也可能与标题同行。
 # 用按钮中心向上 120px / 向下 25px 作为整行范围，既能覆盖标题+进度，也不会串到相邻行（行距约 155px）。
@@ -197,8 +213,20 @@ class WeeklyDispatch(CustomAction):
             return CustomAction.RunResult(success=True)
 
         if kind == "gacha":
-            # 祈愿页的美术字池名 OCR 会抖（「友情祈愿」常读成「友倩祈愿」），已知池子用正则放宽。
-            pattern = POOL_EXPECTED.get(pool, pool)
+            # 祈愿页的美术字池名 OCR 会抖（「友情祈愿」常读成「友倩祈愿」/「友祈愿」），
+            # 统一用 pool_pattern 放宽；两个节点必须用同一条正则，否则会出现
+            # 「选中了但复核不过」的假失败（旧版 冒险祈愿 就是这个原因：OCR 读出繁体「冒險祈願」）。
+            pattern = pool_pattern(pool)
+            # 泳道扫描节点是 max_hit 计数的：同一次周常里第二次进入祈愿流程时，
+            # 上次用尽的额度会让扫池直接空转，所以每次进入前都要复位。
+            for node_name in (
+                "Wish_SelectPool",
+                "Wish_SwipeLaneBack",
+                "Wish_SwipeLane",
+                "Wish_Draw",
+                "Wish_TapReveal",
+            ):
+                context.clear_hit_count(node_name)
             detail = context.run_task(
                 "Wish_Start",
                 {
@@ -206,6 +234,8 @@ class WeeklyDispatch(CustomAction):
                     "Wish_SelectPool": {"recognition": {"param": {"expected": [pattern]}}},
                 },
             )
+            if detail is None or detail.status.failed:
+                logger.error("WeeklyDispatch: 祈愿池 {} 未能选中/确认（pattern={}），跳过抽卡。", pool, pattern)
         else:
             override = {
                 "GameplayChallenge_DungeonEntry": {

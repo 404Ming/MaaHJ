@@ -4,8 +4,8 @@
     "label": "MaaHJ",
     "title": "哼唧小助手",
     "icon": "resource/base/image/icon.png",
-    "version": "v0.1.3",
     "github": "https://github.com/404Ming/MaaHJ",
+    "version": "v0.1.4",
     "description": "MaaHJ MaaFW project",
     "controller": [
         {
@@ -729,7 +729,7 @@
         "折扣礼包商品": {
             "type": "checkbox",
             "label": "折扣礼包商品",
-            "description": "折扣礼包页要购买的礼包，买满当日/当周限购次数。折扣礼包的商品会随活动轮换：清单里当前不在售的那几项会被静默跳过，不会误买别的东西。一件都不勾选则整个折扣礼包段不做任何点击。",
+            "description": "折扣礼包页要购买的礼包，买满当日/当周限购次数。只识别页面第一行的两张卡（左=1号位、右=2号位），下面几行即使显示可购买也不碰。礼包名随活动轮换，清单里当前不在 1、2 号位的那几项会被静默跳过，不会误买别的东西。一件都不勾选则整个折扣礼包段不做任何点击。",
             "cases": [
                 {
                     "name": "每日福利",
@@ -815,8 +815,17 @@
         "征伐印记商店商品": {
             "type": "checkbox",
             "label": "征伐印记商店商品",
-            "description": "征伐印记商店「可兑换」里要购买的商品，每件买到当周限购上限（卡片上「每周:N/M」的 M）。名称被游戏截断的商品按卡片上真实显示的前缀匹配，括号里是价格。买满限购的商品会从列表消失、售罄的会沉到列表最下面，任务在每次购买后都会重新扫描。",
+            "description": "征伐印记商店「可兑换」里要购买的商品，每件买到当周限购上限（卡片上「每周:N/M」的 M）。名称被游戏截断的商品按卡片上真实显示的前缀匹配，括号里是价格；星间通信书不区分价格，任意价格的同名卡都算这一件。买满限购的商品会从列表消失、售罄的会沉到列表最下面，任务在每次购买后都会重新扫描。",
             "cases": [
+                {
+                    "name": "星间通信书",
+                    "label": "星间通信书",
+                    "pipeline_override": {
+                        "ShopPick_Badge_020": {
+                            "enabled": true
+                        }
+                    }
+                },
                 {
                     "name": "始源巨兽刻印金宝箱（2000）",
                     "label": "始源巨兽刻印金宝箱",
@@ -984,15 +993,6 @@
                     "label": "长空祈愿之视",
                     "pipeline_override": {
                         "ShopPick_Badge_019": {
-                            "enabled": true
-                        }
-                    }
-                },
-                {
-                    "name": "星间通信书（2000）",
-                    "label": "星间通信书",
-                    "pipeline_override": {
-                        "ShopPick_Badge_020": {
                             "enabled": true
                         }
                     }
@@ -2666,6 +2666,809 @@
             ],
             "default_case": [
                 "全体可见"
+            ]
+        },
+        "自动挂机-王国灾厄": {
+            "type": "checkbox",
+            "label": "王国灾厄",
+            "description": "勾选要挂机的副本与难度（可多选）。武器副本有普通/困难/噩梦三档，游戏里只列出你已解锁的那几档；恶魔康斯洛特是传说副本，难度 1~10。",
+            "cases": [
+                {
+                    "name": "野猪统领 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S1_01_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "野猪统领 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S1_01_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "野猪统领 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S1_01_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "青鬃熊 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S1_02_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "青鬃熊 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S1_02_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "青鬃熊 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S1_02_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "狂暴树精 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S1_03_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "狂暴树精 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S1_03_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "狂暴树精 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S1_03_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "猩猩王 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S1_04_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "猩猩王 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S1_04_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "猩猩王 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S1_04_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度1",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L1": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度2",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L2": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度3",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L3": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度4",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L4": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度5",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L5": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度6",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L6": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度7",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L7": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度8",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L8": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度9",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L9": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "恶魔康斯洛特 · 难度10",
+                    "pipeline_override": {
+                        "AutoIdle_S1_05_L10": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "自动挂机-始源巨兽": {
+            "type": "checkbox",
+            "label": "始源巨兽",
+            "description": "勾选要挂机的副本与难度（可多选）。武器副本有普通/困难/噩梦三档，游戏里只列出你已解锁的那几档；魔君诺维克是传说副本，难度 1~10。",
+            "cases": [
+                {
+                    "name": "米劳罗 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S2_01_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "米劳罗 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S2_01_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "米劳罗 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S2_01_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "潘塔菲卡 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S2_02_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "潘塔菲卡 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S2_02_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "潘塔菲卡 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S2_02_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "苏尔特尔 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S2_03_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "苏尔特尔 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S2_03_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "苏尔特尔 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S2_03_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "赫拉斯瓦尔格 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S2_04_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "赫拉斯瓦尔格 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S2_04_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "赫拉斯瓦尔格 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S2_04_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "卡律布狄斯 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S2_05_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "卡律布狄斯 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S2_05_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "卡律布狄斯 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S2_05_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "伊南娜 · 普通",
+                    "pipeline_override": {
+                        "AutoIdle_S2_06_Normal": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "伊南娜 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S2_06_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "伊南娜 · 噩梦",
+                    "pipeline_override": {
+                        "AutoIdle_S2_06_Nightmare": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度1",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L1": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度2",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L2": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度3",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L3": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度4",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L4": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度5",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L5": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度6",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L6": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度7",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L7": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度8",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L8": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度9",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L9": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "魔君诺维克 · 难度10",
+                    "pipeline_override": {
+                        "AutoIdle_S2_07_L10": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "自动挂机-神祝之翼": {
+            "type": "checkbox",
+            "label": "神祝之翼",
+            "description": "勾选要挂机的副本与难度（可多选）。武器副本只有「困难」一档；女武神艾莉瑞尔是传说副本，难度 1~10。",
+            "cases": [
+                {
+                    "name": "迪亚波罗 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S3_01_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "斯文托维特 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S3_02_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欧若拉 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S3_03_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "阿格莱亚 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S3_04_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "太阿 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S3_05_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "戈舆 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S3_06_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度1",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L1": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度2",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L2": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度3",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L3": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度4",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L4": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度5",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L5": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度6",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L6": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度7",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L7": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度8",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L8": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度9",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L9": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "女武神艾莉瑞尔 · 难度10",
+                    "pipeline_override": {
+                        "AutoIdle_S3_07_L10": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "自动挂机-烛之造物": {
+            "type": "checkbox",
+            "label": "烛之造物",
+            "description": "勾选要挂机的副本与难度（可多选）。武器副本只有「困难」一档；孕星烛母是传说副本，难度 1~10。",
+            "cases": [
+                {
+                    "name": "焚尽花 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S4_01_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "和音傀 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S4_02_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "欲望泉 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S4_03_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "断裁偶 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S4_04_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "绝罚刺 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S4_05_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "虚妄冠 · 困难",
+                    "pipeline_override": {
+                        "AutoIdle_S4_06_Hard": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度1",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L1": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度2",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L2": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度3",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L3": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度4",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L4": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度5",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L5": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度6",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L6": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度7",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L7": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度8",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L8": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度9",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L9": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "孕星烛母 · 难度10",
+                    "pipeline_override": {
+                        "AutoIdle_S4_07_L10": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
+        },
+        "自动挂机-神骸试炼": {
+            "type": "checkbox",
+            "label": "神骸试炼",
+            "description": "勾选要挂机的副本与难度（可多选）。前四个副本各自只有一档可选，一个副本勾一项即可；无终冥士·俄耳浦斯是传说副本，难度 1~10。",
+            "cases": [
+                {
+                    "name": "天阳御者·法厄同",
+                    "pipeline_override": {
+                        "AutoIdle_S5_01_Single": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "登神天马·柏勒洛丰",
+                    "pipeline_override": {
+                        "AutoIdle_S5_02_Single": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "屠魔英仙·珀尔修斯",
+                    "pipeline_override": {
+                        "AutoIdle_S5_03_Single": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "净世猎手·俄里翁",
+                    "pipeline_override": {
+                        "AutoIdle_S5_04_Single": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度1",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L1": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度2",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L2": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度3",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L3": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度4",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L4": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度5",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L5": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度6",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L6": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度7",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L7": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度8",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L8": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度9",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L9": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "无终冥士·俄耳浦斯 · 难度10",
+                    "pipeline_override": {
+                        "AutoIdle_S5_05_L10": {
+                            "enabled": true
+                        }
+                    }
+                }
             ]
         }
     },

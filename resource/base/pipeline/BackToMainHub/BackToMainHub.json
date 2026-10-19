@@ -1,13 +1,53 @@
 {
     "BackToMainHub_Start": {
-        // 入口：先判定是否已在主页；不在主页则尝试点「返回 / 世界」回到主页。
-        // next 只放条件节点：无条件 DirectHit 节点会让后面的候选永远不被识别。
+        // 回主页链入口：目标是**从任意页面回到主页**（用户需求）。
+        // 判定顺序 =「动作越轻越优先」，除末位兜底外全是条件节点（只在正面识别到时才动手，绝不盲点）：
+        //   1) AtMainHub    已在主页 → 直接 Done；
+        //   2) RewardClose  「恭喜获得 / 点击空白区域关闭」遮屏提示 → 点空白关掉（复用公共异常节点）；
+        //   3) CloseIcon    任意「X」关闭图标（道具详情 / 公告 / 浮层）→ 点掉（复用公共异常节点）；
+        //   4) Back         左下角返回图标（本作子页面统一在这里）→ 退一级，最多 8 级；
+        //   5) Escalate     以上全不命中（满屏加载页 / 认不出的页面）→ 交给公共异常重路径。
+        // timeout 是**本次候选列表的识别预算**：这里有两处 OCR + 两处模板匹配，比原来长；
+        // 沿用默认 20000 会被框架按单步超时打断、报 bad next 判任务失败，故显式放宽到 25000。
         "action": {
             "type": "DoNothing"
         },
+        "timeout": 25000,
         "next": [
             "BackToMainHub_AtMainHub",
-            "[JumpBack]BackToMainHub_Back"
+            "BackToMainHub_AtMainHubMenu",
+            "[JumpBack]Exception_RewardClose",
+            "[JumpBack]Exception_CloseIcon",
+            "[JumpBack]BackToMainHub_Back",
+            "[JumpBack]BackToMainHub_BackBlind",
+            "BackToMainHub_Escalate"
+        ]
+    },
+    "BackToMainHub_AtMainHubMenu": {
+        // 主页的第二个锚点：底部导航最右侧「菜单」（实测 box (636,1228,57,36)）。
+        // 保留两个锚点是为了防 OCR 抖动：「惑星之间」在横幅/弹窗半遮挡时偶尔读不到，
+        // 只认一个锚点会误判成「还没回主页」，进而去点不存在的返回图标、甚至升级到重启。
+        // 子页面右下角没有「菜单」，所以该位置只有主页会命中。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 4000,
+        "next": [
+            "BackToMainHub_Done"
         ]
     },
     "BackToMainHub_AtMainHub": {
@@ -39,8 +79,9 @@
         // 子页面判定并返回：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
         // 比 OCR「返回|世界」更稳：实测子页面左下角是纯图标按钮（无文字），OCR 反而读不到。
         // 执行完由 [JumpBack] 回 Start 重新判定。
-        // max_hit 限制返回层级：异常画面下最多点 5 次，之后候选耗尽、任务安全停止。
-        "max_hit": 5,
+        // max_hit 限制返回层级：从深层页面（战前准备 → 详情 → 列表 → 商店 → 活动一览 → 菜单）回来
+        // 需要 5 级以上，故给 8；用尽后交给 BackToMainHub_Escalate 的重路径，不会无限点。
+        "max_hit": 8,
         "recognition": {
             "type": "TemplateMatch",
             "param": {
@@ -62,6 +103,45 @@
         },
         "post_delay": 500,
         "timeout": 3000
+    },
+    "BackToMainHub_BackBlind": {
+        // 模板认不到时的兜底返回：本作的返回按钮**不止一种画法**（实测两种）——
+        //   祈愿 / 副本页是「华丽大边框」蓝钮（BackButton.png / BackButton2.png 能匹配）；
+        //   商店 / 征伐印记 / 公会商店页是「圆角小蓝钮」，与上面两个模板都对不上（离线实测 score<0.8），
+        //   于是旧版回主页链在商店类页面会 5 次全落空、一路失败。
+        // 这里按项目已实测有效的左下角返回位置点一次（与 StaminaRefill_Back / Shop.BACK_POINT 同一处）。
+        // 落点 (73,1240) 与 Shop_Back / Shop_BackMenu 实测有效的固定返回点完全一致。
+        // 安全性：只在「两个主页锚点都没命中」之后才走到；主页上这个点就是底部「惑星之间」，点了也是原地。
+        // max_hit 6：给深层页面留够级数，用尽后交给 BackToMainHub_Escalate 的重路径，不无限点。
+        "max_hit": 6,
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    63,
+                    1230,
+                    20,
+                    20
+                ]
+            }
+        },
+        "post_delay": 700,
+        "timeout": 3000
+    },
+    "BackToMainHub_Escalate": {
+        // 末位兜底（一次任务只升级一次）：上面的轻动作全都不命中时，交给公共异常重路径
+        // Exception_Unknown —— 好友申请 → 关 X → 退一级 → Exception_BackToHub（尽力回主页，
+        // 退不回去才 Exception_Restart 重启游戏）。这是「从任意页面回到主页」承诺的最后一道保险：
+        // 满屏加载页 / 认不出的异常页面只有重启才能回到主页。
+        // max_hit 1：整轮任务最多升级一次，绝不允许反复重启。
+        "max_hit": 1,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_Unknown"
+        ]
     },
     "BackToMainHub_Done": {
         // 完成态：已停在主页（惑星之间），可交给后续任务。

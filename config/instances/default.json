@@ -13,6 +13,7 @@
     "Event<|||>Event_Start",
     "DungeonChallenge<|||>DungeonChallenge_Start",
     "GameplayChallenge<|||>GameplayChallenge_Start",
+    "AutoIdle<|||>AutoIdle_Start",
     "SkipTurnOnly<|||>SkipTurnOnly_Start",
     "RefillStaminaOnly<|||>RefillStaminaOnly_Start",
     "LaunchGame<|||>LaunchGame_Start",
@@ -24,7 +25,7 @@
       "label": "使用说明",
       "entry": "Guide_Start",
       "default_check": false,
-      "description": "分辨率要求720x1280 DPI320"
+      "description": "分辨率要求 720×1280、DPI 320；界面按竖屏、短边 720 做识别，游戏内不要切横屏，否则 ROI 全部错位。\n\n**第一步 · 模拟器**\n\n- 推荐 **MuMu 模拟器 12**，显示设置为「手机版 720×1280 320DPI」，开启 ADB 调试。\n\n**第二步 · 游戏内设置**\n\n- 自动化流程依赖下面的游戏内设置，请逐项对照确认（下表按三张设置截图整理，右列即截图中的选择）。\n- 音量相关的项（总音量 / 背景音乐 / 音效 / 角色战斗语音）不影响脚本，按自己习惯设置即可。\n\n**设置 → 基础**\n\n| 设置项 | 设置值 |\n| --- | --- |\n| 摇杆设置 | 固定摇杆 |\n| 自动挂机精力不足是否自动吃精力药 | 自动吃药 |\n| 自动挂机死亡是否自动暂离 | 自动暂离 |\n| 自动挂机是否自动跳过回合 | 自动跳过 |\n\n**菜单 → 战斗设置**\n\n| 设置项 | 设置值 |\n| --- | --- |\n| 自动战斗模式 | 完全自动 |\n| 自动战斗开关 | 默认开启 |\n| 战报显示 | 关闭显示 |\n| 技能释放速度 | x2 |\n| 怪物立绘动画 | 默认开启 |\n\n**设置 → 画面**\n\n| 设置项 | 设置值 |\n| --- | --- |\n| 屏幕方向 | 竖屏 |\n| 画面品质 | 低 |\n| 帧率上限 | 60 |\n| 同屏人数 | 不显示 |"
     },
     {
       "name": "Daily",
@@ -117,25 +118,14 @@
       "name": "MachineGodDescent",
       "label": "机神降临",
       "entry": "MachineGodDescent_Start",
-      "default_check": true,
+      "default_check": false,
       "doc": [
-        "进入机神降临活动，自动探索并领取奖励；按设置的次数自动挑战机神降临（多人房间战）和元素自律机械。"
+        "进入机神降临活动，自动探索并领取奖励；按设置的次数自动挑战元素自律机械（优先）和机神降临（多人房间战）。两个挑战都开启时，先打元素自律机械，打完再打机神降临。"
       ],
       "option": [
         {
           "name": "自动探索领取",
           "index": 0
-        },
-        {
-          "name": "挑战机神降临",
-          "index": 0
-        },
-        {
-          "name": "机神降临挑战次数",
-          "index": 0,
-          "data": {
-            "机神降临挑战次数": "1"
-          }
         },
         {
           "name": "挑战元素自律机械",
@@ -146,6 +136,17 @@
           "index": 0,
           "data": {
             "自律机械挑战次数": "1"
+          }
+        },
+        {
+          "name": "挑战机神降临",
+          "index": 0
+        },
+        {
+          "name": "机神降临挑战次数",
+          "index": 0,
+          "data": {
+            "机神降临挑战次数": "1"
           }
         }
       ]
@@ -160,7 +161,33 @@
       "name": "DungeonChallenge",
       "label": "副本挑战",
       "entry": "DungeonChallenge_Start",
-      "default_check": false
+      "default_check": false,
+      "doc": [
+        "从主页「副本」进入副本挑战页，自动切到所选副本的系列，点该副本右侧「前往」进入详情页。",
+        "选好难度后按「挑战方式」创建多人房间：创建房间 → 选助战 → 编队确定 → 房间开始战斗 → 结算，按设置次数重复。",
+        "注意：每次都会真实消耗体力/BP；「次数」默认 0（不挑战）、「挑战副本」和「难度」默认无（不挑战）。"
+      ],
+      "option": [
+        {
+          "name": "副本挑战副本",
+          "index": 0
+        },
+        {
+          "name": "副本挑战方式",
+          "index": 0
+        },
+        {
+          "name": "副本挑战难度",
+          "index": 0
+        },
+        {
+          "name": "副本挑战次数",
+          "index": 0,
+          "data": {
+            "副本挑战次数": "0"
+          }
+        }
+      ]
     },
     {
       "name": "GameplayChallenge",
@@ -185,6 +212,45 @@
           "data": {
             "挑战次数": "1"
           }
+        }
+      ]
+    },
+    {
+      "name": "AutoIdle",
+      "label": "自动挂机",
+      "entry": "AutoIdle_Start",
+      "default_check": false,
+      "doc": [
+        "从主页右下「战斗列表」进入，点「自动挂机」，按任务设置逐个勾选副本与难度，确定后开始挂机。",
+        "会在「选择要挂机的副本」弹窗里先点「重置」清空游戏里已有的勾选，再按本任务的设置重新勾选。",
+        "确定后如果没进入「自动挂机中」，会重新走一遍「自动挂机」流程（最多 3 次）。",
+        "注意：挂机会真实连续战斗并消耗 BP；一个难度都没勾选时任务不点任何按钮。"
+      ],
+      "option": [
+        {
+          "name": "自动挂机-王国灾厄",
+          "index": 0,
+          "selected_cases": []
+        },
+        {
+          "name": "自动挂机-始源巨兽",
+          "index": 0,
+          "selected_cases": []
+        },
+        {
+          "name": "自动挂机-神祝之翼",
+          "index": 0,
+          "selected_cases": []
+        },
+        {
+          "name": "自动挂机-烛之造物",
+          "index": 0,
+          "selected_cases": []
+        },
+        {
+          "name": "自动挂机-神骸试炼",
+          "index": 0,
+          "selected_cases": []
         }
       ]
     },
@@ -221,15 +287,6 @@
   ],
   "InstanceName": "配置 1",
   "AdbDevice": {
-    "InfoHandle": {
-      "value": 1564187412496
-    },
-    "Name": "风之痕迹-MuMuPlayer v5+",
-    "AdbPath": "D:/Apps/MuMu/nx_main/adb.exe",
-    "AdbSerial": "127.0.0.1:16512",
-    "ScreencapMethods": 64,
-    "InputMethods": 18446744073709551607,
-    "Config": "{\"extras\":{\"mumu\":{\"enable\":true,\"index\":4,\"path\":\"D:/Apps/MuMu\"}}}",
     "AgentPath": "./MaaAgentBinary"
   },
   "GlobalOptionItems": [
@@ -276,6 +333,17 @@
     {
       "name": "暗属性编队助战",
       "index": 0
+    },
+    {
+      "name": "发送多人支援请求",
+      "index": 1
+    },
+    {
+      "name": "支援请求范围",
+      "index": 0,
+      "selected_cases": [
+        "全体可见"
+      ]
     }
   ],
   "ResourceOptionItems": {}

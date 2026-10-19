@@ -1,4 +1,8 @@
 {
-    "ColorTheme": "Blue",
-    "BaseTheme": "Dark"
+  "ColorTheme": "Blue",
+  "BaseTheme": "Dark",
+  "CurrentLanguage": "zh-CN",
+  "ResourceUpdateChannelInitialized": true,
+  "EnableEdit": false,
+  "UI.HasCompletedFirstUseTutorial": true
 }

@@ -8,7 +8,9 @@
         "action": {
             "type": "DoNothing"
         },
-        "timeout": 20000,
+        // 时限覆盖「进页 + 泳道左右扫描 + 确认池 + 十连翻牌」整条链；泳道扫描每步含 2 次 OCR，
+        // 旧值 20s 会在还没扫到目标池时就被判超时，表现为「不会选中对应祈愿池」。
+        "timeout": 120000,
         "next": [
             "[JumpBack]Exception_Start",
             "Wish_OpenMenu",
@@ -91,12 +93,17 @@
         "next": [
             "Wish_VerifyPool",
             "Wish_SelectPool",
-            "Wish_PickFriend"
+            "Wish_SwipeLaneBack",
+            "Wish_SwipeLane"
         ]
     },
     "Wish_VerifyPool": {
         // 横幅确认：当前展示的祈愿池标题。命中才允许抽卡。
-        // 美术字标题 OCR 会抖（「友情祈愿」常被识别成「友倩祈愿」），故 expected 用正则。
+        // 美术字标题 OCR 实测会丢字/串字/繁简混用：
+        //   「友情祈愿」→ 友倩祈愿 / 友宿祈愿 / 友祈愿(丢字)
+        //   「冒险祈愿」→ 冒險祈願(繁体)
+        // 所以 expected 统一用「首字 + 0~3 个任意字符 + 末字(含繁简)」，
+        // 首字就是各池的唯一区分点，不能放松。调用方 override 见 weekly_dispatch.pool_pattern()。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -104,10 +111,10 @@
                     0,
                     430,
                     720,
-                    340
+                    360
                 ],
                 "expected": [
-                    "友.祈愿"
+                    "友.{0,3}[愿願]"
                 ]
             }
         },
@@ -120,49 +127,86 @@
         ]
     },
     "Wish_SelectPool": {
-        // 底部泳道里名字可读的池子（如「冒险祈愿」）直接点选；expected 由调用方 override。
-        // 默认值同 Wish_VerifyPool（友情祈愿）：该池泳道卡片只写「火水属性」，这里的识别必然落空，
-        // 于是自然落到 Wish_PickFriend 兜底，不会误点其它池。
-        "max_hit": 2,
+        // 底部泳道里直接点选目标池；expected 由调用方 override（默认同 Wish_VerifyPool）。
+        // 泳道卡片名字是可读的（720x1280 实测 OCR：「友倩祈愿」0.90、「冒险祈愿」0.92~0.97），
+        // 卡片名 box 实测落在 y=1101..1172，旧 ROI(1020..1170) 会把名字下沿切掉，故改为 1040..1200。
+        // 目标池不在可视区时这里正常落空，由 Wish_SwipeLane 先把泳道拖出来。
+        // max_hit 给 3：泳道已滚到目标卡但点击没生效时还能再点一次，同时不会无限循环。
+        "max_hit": 3,
         "recognition": {
             "type": "OCR",
             "param": {
                 "roi": [
                     0,
-                    1020,
+                    1040,
                     720,
-                    150
+                    160
                 ],
                 "expected": [
-                    "友.祈愿"
+                    "友.{0,3}[愿願]"
                 ]
             }
         },
         "action": {
             "type": "Click"
         },
-        "post_delay": 500,
+        // 点卡后横幅有一段切换动画，等它稳定再回 Wish_Page 复核，避免「点了但读到的还是旧标题」。
+        "post_delay": 800,
         "timeout": 2000,
         "next": [
             "Wish_Page"
         ]
     },
-    "Wish_PickFriend": {
-        // 兜底选池：友情祈愿恒为泳道最左卡片（x20~215），点它选中后回到 Wish_Page 由 Wish_VerifyPool 复核。
-        // max_hit=1：只点一次，复核仍失败就直接失败退出，避免反复点错池后误抽。
-        "max_hit": 1,
+    "Wish_SwipeLaneBack": {
+        // 泳道回扫（先把泳道拖到最左端）。泳道的滚动位置会跨次进入保留，
+        // 所以只往一个方向拖可能永远扫不到目标池，先回左端再单向向右扫。
+        // 实测（720x1280）：卡片位于 y≈1060..1180，卡片名文字 y≈1100..1172；
+        // 在 y=1120 上横向拖动只滚动泳道、**不会选中任何池**（横幅标题保持不变）。
+        // 步长 300px < 卡片宽度，保证不会整张卡片被跳过。
+        "max_hit": 3,
         "action": {
-            "type": "Click",
+            "type": "Swipe",
             "param": {
-                "target": [
-                    118,
-                    1085,
-                    16,
-                    16
-                ]
+                "begin": [
+                    140,
+                    1120
+                ],
+                "end": [
+                    440,
+                    1120
+                ],
+                "duration": 400
             }
         },
-        "post_delay": 500,
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "Wish_Page"
+        ]
+    },
+    "Wish_SwipeLane": {
+        // 向右扫描泳道：目标池可能在右侧不可见区（实测「友情祈愿」就在最右边）。
+        // 每拖一步都回 Wish_Page 重新识别「横幅 + 泳道卡片」，找到就点、点到就复核；
+        // 旧版「盲点泳道最左卡片」的做法会点到火水属性祈愿，等于选错池。
+        // post_delay 必须够长：泳道是带惯性的吸附列表，拖完 500ms 内卡片还在滑行，
+        // 此时识别会漏掉刚滑进可视区的卡片（实测连续 6 次拖拽全部识别落空）。
+        // 宁可扫不完整让子流程失败（WeeklyDispatch 会记错误日志），也不盲点、不抽错池。
+        "max_hit": 6,
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    620,
+                    1120
+                ],
+                "end": [
+                    320,
+                    1120
+                ],
+                "duration": 400
+            }
+        },
+        "post_delay": 1200,
         "timeout": 3000,
         "next": [
             "Wish_Page"
