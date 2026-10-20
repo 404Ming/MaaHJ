@@ -42,10 +42,15 @@ logs:
     - debug/**/*.log
 
 # 前台模式：截图跟随手机主屏。
-# 注意：后台模式的虚拟屏只接受横屏（width > height），而本项目 ROI 按竖屏 720 短边标定，
-# 后台模式必然错位，所以这里不提供后台档位。
+# presets 是后台模式（虚拟屏）的档位；本项目 ROI 按竖屏 720 短边标定，所以只给竖屏档。
+# 竖屏档依赖 overrides/BuildProfile.kt 放开「必须 width > height」的校验，否则构建期直接失败。
 display:
   foreground: true
+  presets:
+    - label: 720P
+      width: 720
+      height: 1280
+      dpi: 320
 
 app:
   id: maahj

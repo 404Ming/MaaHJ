@@ -42,18 +42,23 @@ $env:ANDROID_HOME = 'D:\Android\Sdk'
 
 ### 对 MaaFwApp 的源码改动
 
-上游 MaaFwApp 的显示相关逻辑写死了横屏，本项目要跑竖屏（720×1280）配方，因此有 3 个文件被改过：
+上游 MaaFwApp 的显示逻辑写死了横屏，且虚拟屏上的游戏被系统搬走后不会自己回来。本项目要跑竖屏
+（720×1280）配方并依赖后台虚拟屏，因此有 6 个文件被改过：
 
 | 文件 | 改动 |
 | --- | --- |
 | `app/.../runner/DisplayResolution.kt` | 注释校正（预设校验不再限定横屏） |
 | `app/.../ui/tasks/TasksPreviewSection.kt` | 全屏预览按虚拟屏方向锁屏：竖屏档位锁竖屏，横屏档位才锁横屏 |
 | `build-logic/.../gradle/BuildProfile.kt` | `display.presets[]` 校验从「必须 `width > height`」放宽为「不能是正方形」 |
+| `app/.../bridge/DriverClass.java` | `StartApp` 时先 `AppWatchdog.expectTarget()`，把目标包作为先验知识交给看门狗 |
+| `app/.../remote/internal/ActivityUtils.kt` | 启动校验改为「在目标屏上待住 3 秒」才算钉住，挡住二段跳的第二次投放 |
+| `app/.../remote/internal/AppWatchdog.kt` | 按先验目标判定漂移：虚拟屏上一次没出现过目标也能拉回，且不被别的应用顶掉目标 |
 
 两个位置保存同一份改动，含义不同：
 
 - `Android/overrides/`：改完后的**完整文件**，按上游相对路径镜像存放；`build.ps1` 克隆完 MaaFwApp 后整文件覆盖，构建一定用上这些改动
-- `Android/patches/0001-portrait-orientation.patch`：相对上游 `bc55dac` 的 diff，只用于审阅与升级上游时重做改动（`git apply` 到 MaaFwApp 目录即可）
+- `Android/patches/`：相对上游 `bc55dac` 的 diff，按主题拆开——`0001-portrait-orientation.patch`（竖屏显示）、
+  `0002-pin-app-on-virtual-display.patch`（虚拟屏漂移拉回），只用于审阅与升级上游时重做改动（`git apply` 到 MaaFwApp 目录即可）
 
 ### 手动构建
 
@@ -98,6 +103,9 @@ Release 包默认未签名（不能安装）。用 `KEYSTORE_PATH` / `KEYSTORE_P
 
 > 密钥库与密码**不要**提交到仓库。
 
+从 `v0.1.5` 起 Android 包使用新的发布密钥（旧密钥口令遗失）。新旧包签名互不兼容：
+从更早的包升级必须先卸载，否则安装会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。
+
 ## 在手机上运行
 
 1. 安装 APK，装 [Shizuku](https://shizuku.rikka.app/) 或 root，并在应用内完成授权
@@ -124,7 +132,7 @@ MaaFwApp 的前台模式按手机真实分辨率截图（`MaaRunner.buildControl
   决定（当前 5.13.0），与 `requirements.txt` 里的版本无关；移植前请确认 agent 未使用更新的 API
 - 默认双 ABI 通用包约 128 MB；只出真机包用 `-Abi arm64-v8a`（体积减半），`build.debugAbi` / `build.releaseAbi` 亦可直接调
 - 重装且 versionCode 未变时，设备可能复用旧解包；改完资源请清应用数据或「重新解压资源」
-- 后台模式（虚拟屏）需要配 `display.presets` 的竖屏档位（校验已放开），本项目仍用前台模式
+- 后台模式（虚拟屏）档位已在 `pi-profile.yaml` 配好 720P 竖屏；运行时仍默认前台模式，两者截图来源不同
 - `overrides/` 是整文件覆盖而非合并：上游改了同名文件时，需要人工比对后重新生成 `patches/`
 
 ## 目录说明
@@ -138,3 +146,13 @@ MaaFwApp 的前台模式按手机真实分辨率截图（`MaaRunner.buildControl
 | `Android/maahj-config-android.json` | 手机端导出的一份运行配置（任务/选项/设置），可导入参考 |
 | `Android/logo.png` | APK 启动图标 |
 | `.build/`（不入库） | MaaFwApp 源码、agent 运行时、Gradle 中间产物 |
+
+### 为什么仓库里没有整份 MaaFwApp 源码
+
+MaaFwApp 是上游开源工程，`build.ps1` 会 clone 到 `.build/MaaFwApp`；本项目对它的全部改动都在
+`overrides/`（完整文件）与 `patches/`（diff）里，构建时覆盖上去即可复现 APK。整份拷贝既
+体积大、又会和上游版本脱节，所以不入库。
+
+本机构建目录（例如 `_apk-build/`，不入库）里除了 MaaFwApp checkout 还有：`android-sdk/`、
+`agent-dist/`（各 ABI 的 CPython 运行时）、签名密钥库与 `gradle-build*.log`。密钥库与口令
+只放本机，仓库里只记录出包方式。
