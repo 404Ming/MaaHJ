@@ -67,7 +67,7 @@ MaaHJ 的意思是 Maa 哼唧
 
 **Android 端（哼唧小助手 APK）**
 
-1. 打开「任务」页：还没有配置时，点上方选择器新建空配置，或点「设置」滑动到「导入配置」导入作者预设配置[maahj-config-android.json](https://github.com/404Ming/MaaHJ/blob/main/Android/maahj-config-android.json)
+1. 打开「任务」页：还没有配置时，点上方选择器新建空配置，或点「设置」滑动到「导入配置」导入作者预设配置 [maahj-config-android.json](https://github.com/404Ming/MaaHJ/releases/latest/download/maahj-config-android.json)（点击直接下载）
 2. 全局选项（作用于每次运行）在「设置」里「任务设置」改
 3. 点「开始任务」开始跑；运行中点预览可全屏查看，返回键退出全屏
 
