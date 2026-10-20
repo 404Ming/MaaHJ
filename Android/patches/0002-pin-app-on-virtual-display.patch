@@ -1,0 +1,165 @@
+﻿diff --git a/app/src/main/java/com/aliothmoon/maafw/bridge/DriverClass.java b/app/src/main/java/com/aliothmoon/maafw/bridge/DriverClass.java
+index 4633b97..7592f5b 100644
+--- a/app/src/main/java/com/aliothmoon/maafw/bridge/DriverClass.java
++++ b/app/src/main/java/com/aliothmoon/maafw/bridge/DriverClass.java
+@@ -5,6 +5,7 @@ import android.content.pm.PackageInfo;
+ import android.os.SystemClock;
+ 
+ import com.aliothmoon.maafw.remote.internal.ActivityUtils;
++import com.aliothmoon.maafw.remote.internal.AppWatchdog;
+ import com.aliothmoon.maafw.remote.internal.GameFpsMonitor;
+ import com.aliothmoon.maafw.remote.internal.PrimaryDisplayManager;
+ import com.aliothmoon.maafw.third.FakeContext;
+@@ -45,6 +46,10 @@ public final class DriverClass {
+             return ActivityUtils.startApp(packageName, displayId, forceStop);
+         }
+         String target = ActivityUtils.packageNameOf(packageName);
++        // 先把目标包告诉 watchdog：部分游戏（B 服 U8 SDK 二段跳）splash 之后用 NEW_TASK 重投主
++        // Activity，会丢掉 launchDisplayId 落到主屏，任务可能一次都没在虚拟屏上出现过。
++        // 只靠"屏上有谁"反推目标就永远等不到目标，也就永远拉不回来
++        AppWatchdog.expectTarget(target);
+         boolean ret = ActivityUtils.startApp(packageName, displayId, forceStop, true);
+         if (ret) {
+             // 部分 ROM（如 One UI）会把游戏从虚拟屏挪回主屏，启动后校验并尝试拉回；
+diff --git a/app/src/main/java/com/aliothmoon/maafw/remote/internal/ActivityUtils.kt b/app/src/main/java/com/aliothmoon/maafw/remote/internal/ActivityUtils.kt
+index e8ba4af..1d97785 100644
+--- a/app/src/main/java/com/aliothmoon/maafw/remote/internal/ActivityUtils.kt
++++ b/app/src/main/java/com/aliothmoon/maafw/remote/internal/ActivityUtils.kt
+@@ -26,6 +26,10 @@ object ActivityUtils {
+     private const val APP_PIN_TIMEOUT_MS = 10_000L
+     private const val APP_PIN_POLL_INTERVAL_MS = 500L
+ 
++    // 看到任务在目标屏上之后，还要它在原位待住这么久才算钉住：二段跳的第二次投放
++    // 通常在 splash 起来后几百毫秒到两秒内发生
++    private const val APP_PIN_STABLE_MS = 3_000L
++
+     // 拉回操作后等系统完成 reparent 的时间
+     private const val REPIN_SETTLE_MS = 1_000L
+ 
+@@ -214,9 +218,9 @@ object ActivityUtils {
+     }
+ 
+     /**
+-     * 启动后校验：等待 [packageName] 的任务出现在 [displayId] 上；若发现任务落在其它
+-     * display（如 One UI / 部分 ROM 会把游戏从虚拟屏挪回主屏，B 服 U8 SDK 二段跳也可能
+-     * 丢失 launchDisplayId），立即尝试拉回。仅在确认漂移且拉回失败时返回 false。
++     * 启动后校验：等待 [packageName] 的任务出现在 [displayId] 上并待住 [APP_PIN_STABLE_MS]；
++     * 若发现任务落在其它 display（如 One UI / 部分 ROM 会把游戏从虚拟屏挪回主屏，B 服 U8 SDK
++     * 二段跳也可能丢失 launchDisplayId），立即尝试拉回。仅在确认漂移且拉回失败时返回 false。
+      */
+     @JvmStatic
+     @JvmOverloads
+@@ -226,18 +230,31 @@ object ActivityUtils {
+         timeoutMs: Long = APP_PIN_TIMEOUT_MS
+     ): Boolean {
+         val deadline = SystemClock.uptimeMillis() + timeoutMs
++        var onTargetSince = 0L
++        var seenOnTarget = false
+         while (true) {
+             when (val current = getAppDisplayId(packageName)) {
+                 null -> return true // 无法判断，宽松放行
+-                displayId -> return true
+-                DISPLAY_NO_TASK -> Unit // 任务尚未出现，继续等待
++                displayId -> {
++                    val now = SystemClock.uptimeMillis()
++                    if (onTargetSince == 0L) onTargetSince = now
++                    seenOnTarget = true
++                    if (now - onTargetSince >= APP_PIN_STABLE_MS) return true
++                }
++                DISPLAY_NO_TASK -> onTargetSince = 0L // 任务尚未出现（或正在重建），继续等待
+                 else -> {
+                     Ln.w("ensureAppOnDisplay: $packageName drifted to display $current (expected $displayId), trying to move it back")
+-                    return repinAppToDisplay(packageName, displayId)
++                    onTargetSince = 0L
++                    if (!repinAppToDisplay(packageName, displayId)) return false
++                    seenOnTarget = true
+                 }
+             }
+             if (SystemClock.uptimeMillis() >= deadline) {
+-                Ln.w("ensureAppOnDisplay: no task of $packageName observed within ${timeoutMs}ms, passing leniently")
++                if (seenOnTarget) {
++                    Ln.w("ensureAppOnDisplay: $packageName reached display $displayId but did not stay put within ${timeoutMs}ms, passing leniently")
++                } else {
++                    Ln.w("ensureAppOnDisplay: no task of $packageName observed within ${timeoutMs}ms, passing leniently")
++                }
+                 return true
+             }
+             SystemClock.sleep(APP_PIN_POLL_INTERVAL_MS)
+diff --git a/app/src/main/java/com/aliothmoon/maafw/remote/internal/AppWatchdog.kt b/app/src/main/java/com/aliothmoon/maafw/remote/internal/AppWatchdog.kt
+index a2d3cae..405b9f7 100644
+--- a/app/src/main/java/com/aliothmoon/maafw/remote/internal/AppWatchdog.kt
++++ b/app/src/main/java/com/aliothmoon/maafw/remote/internal/AppWatchdog.kt
+@@ -50,6 +50,16 @@ object AppWatchdog {
+     @Volatile
+     var targetPackage: String? = null
+         private set
++
++    /**
++     * 本轮运行里 StartApp 明确指定过的目标包。
++     *
++     * 与 [targetPackage]（从虚拟屏顶层反推）不同，它是先验知识：游戏二段跳把任务投回主屏时，
++     * 虚拟屏可能一次都没出现过目标，只靠反推就永远拿不到目标、永远拉不回
++     */
++    @Volatile
++    var expectedPackage: String? = null
++        private set
+     private var driftFirstSeenMs = 0L
+     private var driftRepinAttempts = 0
+     private var driftNotified = false
+@@ -66,6 +76,8 @@ object AppWatchdog {
+     fun startWatching(isRunActive: () -> Boolean) {
+         stopWatching()
+         targetPackage = null
++        // 上一轮留下的先验目标要清掉：本轮若不含 StartApp，拉回的就可能是用户自己在主屏开的那个应用
++        expectedPackage = null
+         driftFirstSeenMs = 0L
+         driftRepinAttempts = 0
+         driftNotified = false
+@@ -86,6 +98,23 @@ object AppWatchdog {
+         }
+     }
+ 
++    /**
++     * StartApp 明确指定了目标应用：记下先验目标，此后即使虚拟屏上一次都没出现过它，
++     * 也能按「目标不在虚拟屏上」判定漂移并拉回
++     */
++    @JvmStatic
++    @Synchronized
++    fun expectTarget(packageName: String) {
++        if (expectedPackage != packageName) Ln.i("AppWatchdog: expecting $packageName")
++        expectedPackage = packageName
++        targetPackage = packageName
++        driftFirstSeenMs = 0L
++        driftRepinAttempts = 0
++        driftNotified = false
++        diedNotified = false
++        deadPolls = 0
++    }
++
+     @Synchronized
+     fun stopWatching() {
+         job?.cancel()
+@@ -100,9 +129,11 @@ object AppWatchdog {
+             return
+         }
+         val top = (ActivityUtils.probeDisplay(displayId) as? ActivityUtils.DisplayOccupancy.Occupied)?.topPackage
+-        if (top != null) {
++        val expected = expectedPackage
++        val onDisplay = if (expected != null) top == expected else top != null
++        if (onDisplay) {
+             if (targetPackage == null) Ln.i("AppWatchdog: target acquired: $top")
+-            targetPackage = top
++            if (expected == null) targetPackage = top
+             driftFirstSeenMs = 0L
+             driftRepinAttempts = 0
+             driftNotified = false
+@@ -112,7 +143,8 @@ object AppWatchdog {
+             return
+         }
+ 
+-        val pkg = targetPackage
++        // 有先验目标时按先验走：虚拟屏上换成别人的应用也算目标飘了，且不被别人顶掉目标
++        val pkg = expected ?: targetPackage
+         if (pkg == null) {
+             _state.value = STATE_IDLE
+             return

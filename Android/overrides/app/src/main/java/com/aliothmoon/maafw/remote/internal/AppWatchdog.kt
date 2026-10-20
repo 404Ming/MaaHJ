@@ -1,0 +1,199 @@
+package com.aliothmoon.maafw.remote.internal
+import com.aliothmoon.maafw.MaaDispatchers
+
+import android.os.SystemClock
+import com.aliothmoon.maafw.constant.DefaultDisplayConfig
+import com.aliothmoon.maafw.third.Ln
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * 盯虚拟屏上的目标 app：从 [VirtualDisplayManager] 的 displayId 反推顶层包名作为目标，
+ * 离屏则用 [ActivityUtils.repinAppToDisplay] 拉回；状态经 RemoteService.watchdogState() 暴露给 app。
+ *
+ * 与 MaaMeow 的差异：目标包不是外部告知，而是 [ActivityUtils.probeDisplay] 自取；
+ * 判活与 onDisplay 合成一步（屏上有 app 即活）。全程 runCatching 宽松，不抛不误伤
+ */
+object AppWatchdog {
+
+    const val STATE_IDLE = 0
+    const val STATE_WATCHING = 1
+
+    /** 窗口离开虚拟屏且拉回失败，进程还活着 */
+    const val STATE_DISPLAY_DRIFT = 2
+
+    /** pidof 查不到进程 */
+    const val STATE_APP_DIED = 3
+
+    private const val POLL_INTERVAL_MS = 5000L
+    private const val REPIN_GRACE_MS = 5000L
+    private const val MAX_REPIN_ATTEMPTS = 3
+
+    /** PI 自己重启目标应用时会有一拍查不到进程，连续两拍都查不到才算没了 */
+    private const val DEAD_CONFIRM_POLLS = 2
+
+    private val scope = CoroutineScope(SupervisorJob() + MaaDispatchers.IO.limitedParallelism(1))
+
+    private val _state = MutableStateFlow(STATE_IDLE)
+    val state: StateFlow<Int> = _state.asStateFlow()
+
+    private var job: Job? = null
+    /** 运行期反推出来的目标包名；收尾要关它，而 app 侧不维护包名表 */
+    @Volatile
+    var targetPackage: String? = null
+        private set
+
+    /**
+     * 本轮运行里 StartApp 明确指定过的目标包。
+     *
+     * 与 [targetPackage]（从虚拟屏顶层反推）不同，它是先验知识：游戏二段跳把任务投回主屏时，
+     * 虚拟屏可能一次都没出现过目标，只靠反推就永远拿不到目标、永远拉不回
+     */
+    @Volatile
+    var expectedPackage: String? = null
+        private set
+    private var driftFirstSeenMs = 0L
+    private var driftRepinAttempts = 0
+    private var driftNotified = false
+    private var diedNotified = false
+    private var deadPolls = 0
+
+    /**
+     * [isRunActive] 返回 false 后自己收摊：一轮自然跑完没有人来调 [stopWatching]，
+     * 不收的话用户事后在主屏打开目标应用，会被当成「窗口飘了」拉回虚拟屏
+     *
+     * 收摊不清 [targetPackage]：收尾的 stopTargetApp 还要用它
+     */
+    @Synchronized
+    fun startWatching(isRunActive: () -> Boolean) {
+        stopWatching()
+        targetPackage = null
+        // 上一轮留下的先验目标要清掉：本轮若不含 StartApp，拉回的就可能是用户自己在主屏开的那个应用
+        expectedPackage = null
+        driftFirstSeenMs = 0L
+        driftRepinAttempts = 0
+        driftNotified = false
+        diedNotified = false
+        deadPolls = 0
+        _state.value = STATE_IDLE
+        Ln.i("AppWatchdog: start watching display ${VirtualDisplayManager.getDisplayId()}")
+        job = scope.launch {
+            while (isActive && isRunActive()) {
+                delay(POLL_INTERVAL_MS)
+                if (!isRunActive()) break
+                tick()
+            }
+            if (isActive) {
+                Ln.i("AppWatchdog: run finished, stop watching")
+                _state.value = STATE_IDLE
+            }
+        }
+    }
+
+    /**
+     * StartApp 明确指定了目标应用：记下先验目标，此后即使虚拟屏上一次都没出现过它，
+     * 也能按「目标不在虚拟屏上」判定漂移并拉回
+     */
+    @JvmStatic
+    @Synchronized
+    fun expectTarget(packageName: String) {
+        if (expectedPackage != packageName) Ln.i("AppWatchdog: expecting $packageName")
+        expectedPackage = packageName
+        targetPackage = packageName
+        driftFirstSeenMs = 0L
+        driftRepinAttempts = 0
+        driftNotified = false
+        diedNotified = false
+        deadPolls = 0
+    }
+
+    @Synchronized
+    fun stopWatching() {
+        job?.cancel()
+        job = null
+        _state.value = STATE_IDLE
+    }
+
+    private fun tick() {
+        val displayId = VirtualDisplayManager.getDisplayId()
+        if (displayId == DefaultDisplayConfig.DISPLAY_NONE) {
+            _state.value = STATE_IDLE
+            return
+        }
+        val top = (ActivityUtils.probeDisplay(displayId) as? ActivityUtils.DisplayOccupancy.Occupied)?.topPackage
+        val expected = expectedPackage
+        val onDisplay = if (expected != null) top == expected else top != null
+        if (onDisplay) {
+            if (targetPackage == null) Ln.i("AppWatchdog: target acquired: $top")
+            if (expected == null) targetPackage = top
+            driftFirstSeenMs = 0L
+            driftRepinAttempts = 0
+            driftNotified = false
+            diedNotified = false
+            deadPolls = 0
+            _state.value = STATE_WATCHING
+            return
+        }
+
+        // 有先验目标时按先验走：虚拟屏上换成别人的应用也算目标飘了，且不被别人顶掉目标
+        val pkg = expected ?: targetPackage
+        if (pkg == null) {
+            _state.value = STATE_IDLE
+            return
+        }
+
+        // 屏上空了先问进程还在不在：被杀和"窗口跑到主屏去了"是两回事，
+        // 拿后者的文案去讲前者，用户会照着去改前台模式而问题根本不在那
+        when (ProcessLiveness.probe(pkg)) {
+            ProcessLiveness.DEAD -> {
+                if (++deadPolls < DEAD_CONFIRM_POLLS) {
+                    Ln.i("AppWatchdog: $pkg not found, confirming on next poll")
+                    return
+                }
+                if (!diedNotified) {
+                    diedNotified = true
+                    _state.value = STATE_APP_DIED
+                    Ln.w("AppWatchdog: $pkg process is gone")
+                }
+                return
+            }
+            // 判不出就不下结论，等下一拍
+            ProcessLiveness.UNKNOWN -> return
+            ProcessLiveness.ALIVE -> deadPolls = 0
+        }
+
+        // 进程还在，那就是窗口飘了 → 宽限后 repin，超限上报
+        if (driftRepinAttempts >= MAX_REPIN_ATTEMPTS) return
+        val now = SystemClock.elapsedRealtime()
+        if (driftFirstSeenMs == 0L) {
+            driftFirstSeenMs = now
+            Ln.i("AppWatchdog: $pkg left the virtual display, grace ${REPIN_GRACE_MS}ms")
+            return
+        }
+        if (now - driftFirstSeenMs < REPIN_GRACE_MS) return
+
+        Ln.w("AppWatchdog: $pkg drifted, repin attempt ${driftRepinAttempts + 1}/$MAX_REPIN_ATTEMPTS")
+        val ok = runCatching { ActivityUtils.repinAppToDisplay(pkg, displayId) }.getOrDefault(false)
+        val back = ok && runCatching { ActivityUtils.isAppOnDisplay(pkg, displayId) }.getOrDefault(true)
+        if (back) {
+            Ln.i("AppWatchdog: $pkg moved back to the virtual display")
+            driftFirstSeenMs = 0L
+            driftRepinAttempts = 0
+            return
+        }
+        driftRepinAttempts++
+        if (driftRepinAttempts >= MAX_REPIN_ATTEMPTS && !driftNotified) {
+            driftNotified = true
+            _state.value = STATE_DISPLAY_DRIFT
+            Ln.w("AppWatchdog: $pkg left the virtual display and repin failed")
+        }
+    }
+}
