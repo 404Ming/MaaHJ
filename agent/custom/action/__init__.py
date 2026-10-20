@@ -7,6 +7,7 @@ ACTION_MODULES = (
     "dungeon_challenge",
     "auto_idle",
     "shop",
+    "alchemy",
     "stamina_refill",
     "weekly_dispatch",
     "daily",

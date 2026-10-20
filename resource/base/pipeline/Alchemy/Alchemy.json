@@ -1,0 +1,51 @@
+{
+    "Alchemy_Start": {
+        // 「快速炼金」入口：整条流程都在 Python（QuickAlchemy）里，实机 720x1280 逐跳印证：
+        //   主页「菜单」→ 菜单页「熔合炉」→ 合成页右下「炼金」→ 炼金页瓶身「+」
+        //   →「选择材料」弹窗：排序切「道具数量」(已是则跳过) →「一键选择」→「确定」
+        //   → 回炼金页点「开始炼金」→「点击空白…关闭」领奖弹窗 → 下一轮从「+」开始
+        //   → 次数跑完回主页。
+        // custom_action_param.times 由客户端「炼金次数」覆写：1-999，默认 1。
+        // ⚠️ 每次「开始炼金」都会真实消耗一键选择挑中的材料；没有材料可加时自动提前收工。
+        // timeout：一轮约 8~15 秒，1 小时足够覆盖大量次数；异常时由客户端停止兜底。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "QuickAlchemy",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "Alchemy_Done"
+        ]
+    },
+    "Alchemy_Done": {
+        // 终态：本次快速炼金结束（每轮结束时已经尽量把角色送回主页）。
+        // 无条件节点，保证任务以成功收尾。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Alchemy_OcrProbe": {
+        // 空壳 OCR 节点：QuickAlchemy 在 CustomAction 里用 context.run_recognition 做整屏/局部 OCR，
+        // ROI 由调用方按当次需要传 override，所以这里默认写 [0,0,0,0]（= 整屏）。
+        // 不参与任何 next 链，只作为识别模板存在。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    0,
+                    0,
+                    0
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}
