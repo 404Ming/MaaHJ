@@ -9,9 +9,9 @@
 
 - 包名：`com.aliothmoon.maafw.maahj`
 - 应用名：哼唧小助手
-- ABI：`arm64-v8a`（真机；x86_64 模拟器不适用）
+- ABI：`arm64-v8a` + `x86_64` 通用包（真机与模拟器同一个 APK，`MAFW_PACKAGE_ABI=universal`）
 - `minSdk 28` / `targetSdk 36`
-- 包内结构：`assets/pi.zip`（interface.json + tasks + resource + agent）、`assets/agent/bundle.zip`（CPython 3.13 + maa + loguru + numpy）、`lib/arm64-v8a/*.so`（MaaFramework + onnxruntime + opencv）
+- 包内结构：`assets/pi.zip`（interface.json + tasks + resource + agent）、`assets/agent/bundle.zip`（两个 ABI 各一份 CPython 3.13 + maa + loguru + numpy）、`lib/arm64-v8a/*.so` 与 `lib/x86_64/*.so`（MaaFramework + onnxruntime + opencv）
 
 ## 构建
 
@@ -30,6 +30,12 @@
 $env:JAVA_HOME    = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
 $env:ANDROID_HOME = 'D:\Android\Sdk'
 .\Android\build.ps1 -Version 0.1.5
+```
+
+默认出双 ABI 通用包。只想出单架构（体积小一半以上）时：
+
+```powershell
+.\Android\build.ps1 -Version 0.1.5 -Abi arm64-v8a
 ```
 
 脚本依次做：克隆 MaaFwApp → 覆盖 `Android/overrides/` 里的源码改动 → 铺 MaaFramework `.so` → 组 agent 运行时 → 写 `local.properties` → `assembleRelease`。
@@ -64,9 +70,12 @@ python scripts/build_agent_bundle.py --out <仓库根>/.build/agent-dist `
 ```properties
 sdk.dir=D:/Android/Sdk
 pi.profile=<仓库根>/Android/pi-profile.yaml
-build.releaseAbi=arm64-v8a
+build.releaseAbi=arm64-v8a,x86_64
 build.versionName=0.1.5
 ```
+
+`build.releaseAbi` 逗号分隔；写多个 ABI 时只出一个通用包（`MAFW_PACKAGE_ABI=universal`），
+只写一个时按该 ABI 命名。agent 运行时也要按同样清单逐个 `--abi` 生成，缺一个架构那份包就跑不起来。
 
 `pi-profile.yaml` 里的 `${MAAHJ_ROOT}` 需要环境变量，构建前 `$env:MAAHJ_ROOT='<仓库根>'`。
 
@@ -113,7 +122,7 @@ MaaFwApp 的前台模式按手机真实分辨率截图（`MaaRunner.buildControl
 
 - agent 的 `maafw` Python 绑定由 [MaaAgentCoreAndroid](https://github.com/Aliothmoon/MaaAgentCoreAndroid)
   决定（当前 5.13.0），与 `requirements.txt` 里的版本无关；移植前请确认 agent 未使用更新的 API
-- 只出 `arm64-v8a`；`build.debugAbi` / `build.releaseAbi` 可调整
+- 默认双 ABI 通用包约 128 MB；只出真机包用 `-Abi arm64-v8a`（体积减半），`build.debugAbi` / `build.releaseAbi` 亦可直接调
 - 重装且 versionCode 未变时，设备可能复用旧解包；改完资源请清应用数据或「重新解压资源」
 - 后台模式（虚拟屏）需要配 `display.presets` 的竖屏档位（校验已放开），本项目仍用前台模式
 - `overrides/` 是整文件覆盖而非合并：上游改了同名文件时，需要人工比对后重新生成 `patches/`

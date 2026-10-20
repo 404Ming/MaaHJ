@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     构建 MaaHJ 的 Android APK（MaaFwApp + 本项目资源 + Python agent 运行时）。
 
@@ -19,6 +19,9 @@
 .PARAMETER MaaFwAppDir
     MaaFwApp 的 checkout 目录，默认 ./.build/MaaFwApp。
 
+.PARAMETER Abi
+    进包的 ABI 清单，默认 arm64-v8a 与 x86_64（出一个通用包）。只写一个时按该架构出包。
+
 .EXAMPLE
     $env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
     $env:ANDROID_HOME='D:\Android\Sdk'
@@ -29,6 +32,9 @@ param(
     [string]$Version = '0.1.5',
     [string]$MaaFwAppDir = (Join-Path $PSScriptRoot '.build/MaaFwApp'),
     [string]$MaaFrameworkTag = 'v5.13.0',
+    # 进包的 ABI：默认双架构通用包（一个 APK 内同时带 arm64-v8a 与 x86_64 的 .so 与 agent）
+    [ValidateSet('arm64-v8a', 'x86_64')]
+    [string[]]$Abi = @('arm64-v8a', 'x86_64'),
     [string]$Proxy = ''
 )
 
@@ -69,14 +75,15 @@ if (Test-Path $overrides) {
 Push-Location $MaaFwAppDir
 
 # 2. MaaFramework Android 产物（.so 进 app/src/main/jniLibs）
-python scripts/setup_maa_framework.py --tag $MaaFrameworkTag
+$abiArgs = @('--abi', 'all')
+if ($Abi.Count -eq 1) { $abiArgs = @('--abi', $Abi[0]) }
+python scripts/setup_maa_framework.py --tag $MaaFrameworkTag @abiArgs
 
-# 3. Python agent 运行时
+# 3. Python agent 运行时：每个 ABI 一份，缺哪个架构哪个架构的包就跑不起来
 $agentOut = Join-Path $repoRoot '.build/agent-dist'
-python scripts/build_agent_bundle.py `
-    --out $agentOut `
-    --requirements (Join-Path $repoRoot 'requirements.txt') `
-    --no-deps
+$bundleArgs = @('--out', $agentOut, '--requirements', (Join-Path $repoRoot 'requirements.txt'), '--no-deps')
+foreach ($a in $Abi) { $bundleArgs += @('--abi', $a) }
+python scripts/build_agent_bundle.py @bundleArgs
 
 # 4. local.properties
 $sdk = ($env:ANDROID_HOME -replace '\\', '/')
@@ -84,17 +91,20 @@ $profile = ((Join-Path $PSScriptRoot 'pi-profile.yaml') -replace '\\', '/')
 @(
     "sdk.dir=$sdk"
     "pi.profile=$profile"
-    'build.releaseAbi=arm64-v8a'
+    # 逗号分隔；多个 ABI 时 apk 只有一个通用包，MAFW_PACKAGE_ABI 记为 universal
+    "build.releaseAbi=$($Abi -join ',')"
     "build.versionName=$Version"
 ) | Out-File -FilePath local.properties -Encoding ascii
 
 # 5. 出包（release 需要签名，未配置 KEYSTORE_PATH 时打出未签名包）
 $gradleArgs = @(':app:assembleRelease', '--console=plain')
 if ($env:KEYSTORE_PATH) { $gradleArgs += '--no-daemon' }
-& "$PSScriptRoot\..\Android\.build\MaaFwApp\gradlew.bat" @gradleArgs
+& (Join-Path $MaaFwAppDir 'gradlew.bat') @gradleArgs
 if ($LASTEXITCODE -ne 0) { throw "gradle 失败：$LASTEXITCODE" }
 
 $apk = Join-Path $MaaFwAppDir 'app/build/outputs/apk/release/app-release.apk'
-Copy-Item $apk (Join-Path $repoRoot "MaaHJ-v$Version-arm64.apk") -Force
-Write-Host "APK -> MaaHJ-v$Version-arm64.apk"
+$abiLabel = if ($Abi.Count -eq 1) { $Abi[0] } else { 'android' }
+$out = "MaaHJ-v$Version-$abiLabel.apk"
+Copy-Item $apk (Join-Path $repoRoot $out) -Force
+Write-Host "APK -> $out（$($Abi -join ', ')）"
 Pop-Location
