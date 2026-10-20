@@ -1,0 +1,12 @@
+# 本地构建产物
+.build/
+*.apk
+*.aab
+
+# 签名材料不入库
+*.jks
+*.keystore
+local.properties
+
+# 日志
+*.log
