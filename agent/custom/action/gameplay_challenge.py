@@ -8,6 +8,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 from utils import logger
+from utils.interrupt import is_stopping
 from utils.params import parse_params
 
 MIN_TIMES = 1
@@ -129,6 +130,9 @@ class GameplayChallengeLoop(CustomAction):
 
         stuck = 0
         while _record.entered < times and stuck < MAX_STUCK_ATTEMPTS:
+            if is_stopping(context):
+                logger.info("玩法挑战：收到停止请求，中断后续挑战（已登记 {}/{} 次）。", _record.entered, times)
+                break
             index = _record.entered + 1
             logger.info(
                 "第 {}/{} 次挑战开始{}。",

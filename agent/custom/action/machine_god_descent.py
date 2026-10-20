@@ -17,6 +17,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 from utils import logger
+from utils.interrupt import is_stopping
 from utils.params import parse_params
 
 from .gameplay_challenge import (
@@ -208,7 +209,7 @@ def _wait_for(context: Context, roi, wanted: str, timeout: float = _PANEL_TIMEOU
         box = _find_in(context, roi, wanted)
         if box is not None:
             return box
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return None
         time.sleep(_PANEL_POLL)
 
@@ -227,7 +228,7 @@ def _wait_any(context: Context, roi, texts, timeout: float = _PANEL_TIMEOUT) -> 
         joined = "".join(text.strip() for text, _box in _ocr(context, roi))
         if any(item in joined for item in wanted):
             return True
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return False
         time.sleep(_STATE_POLL)
 
@@ -286,6 +287,8 @@ def _wait_support_or_formation(context: Context, formation_roi, formation_text: 
             return "support"
         if _find_in(context, formation_roi, formation_text) is not None:
             return "formation"
+        if is_stopping(context):
+            return None
         time.sleep(_STATE_POLL)
     return None
 
@@ -718,6 +721,9 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
         # 2. 按设置次数循环，剩余可挑战次数不足就提前结束
         done = 0
         for index in range(times):
+            if is_stopping(context):
+                logger.info("机神降临：收到停止请求，元素自律机械段中断（已完成 {}/{} 次）。", done, times)
+                break
             remaining = _read_element_remaining(context)
             if remaining is not None and remaining <= 0:
                 logger.info("机神降临：元素自律机械剩余可挑战次数已用尽（挑战次数：{}），提前结束。", remaining)
@@ -1072,6 +1078,9 @@ class MachineGodDescentGodChallenge(CustomAction):
 
         done = 0
         for index in range(times):
+            if is_stopping(context):
+                logger.info("机神降临：收到停止请求，机神降临挑战段中断（已完成 {}/{} 次）。", done, times)
+                break
             outcome = _run_god_battle(context)
             if outcome == "exhausted":
                 logger.info("机神降临：机神挑战剩余次数已用尽，机神降临挑战段提前结束。")

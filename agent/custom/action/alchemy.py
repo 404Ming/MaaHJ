@@ -34,6 +34,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 from utils import logger
+from utils.interrupt import is_stopping
 from utils.maa_types import ocr_results
 from utils.params import parse_params
 
@@ -203,9 +204,11 @@ def _on_alchemy(lines: list[_Line]) -> bool:
 
 
 def _wait_for(context: Context, predicate: Any, timeout: float) -> bool:
-    """轮询整屏 OCR，直到 predicate(lines) 为真或超时。"""
+    """轮询整屏 OCR，直到 predicate(lines) 为真、超时或收到停止请求。"""
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if is_stopping(context):
+            return False
         if predicate(_scan(context)):
             return True
         time.sleep(POLL_INTERVAL)
@@ -223,6 +226,8 @@ def _return_home(context: Context) -> None:
 def _goto_alchemy(context: Context) -> bool:
     """从主页/菜单页/合成页/炼金页任一状态走到炼金页。"""
     for _ in range(6):
+        if is_stopping(context):
+            return False
         lines = _scan(context)
         if _dialog_open(lines):
             # 弹窗卡在半路：先取消，回到炼金页重新开始。
@@ -266,6 +271,9 @@ def _close_reward_popup(context: Context, timeout: float = 18.0) -> bool:
     misses = 0
     empty_hits = 0
     while time.time() < deadline:
+        if is_stopping(context):
+            logger.info("快速炼金：收到停止请求，中断领奖弹窗处理。")
+            return False
         lines = _scan(context)
         if _dialog_open(lines):
             # 弹窗没关掉反而回到了选择材料页：按取消退出，交给上层判定失败。
@@ -302,11 +310,15 @@ def _close_reward_popup(context: Context, timeout: float = 18.0) -> bool:
 def _one_round(context: Context, index: int, total: int) -> str:
     """完成一轮「加料 → 一键选择 → 确定 → 开始炼金 → 关弹窗」。
 
-    返回 ``"done"`` / ``"empty"``（没有可选材料）/ ``"fail"``。
+    返回 ``"done"`` / ``"empty"``（没有可选材料）/ ``"fail"`` / ``"stopped"``（用户点了停止）。
     """
+    if is_stopping(context):
+        return "stopped"
     logger.info(f"快速炼金：第 {index}/{total} 次 —— 打开选择材料。")
     _click(context, FLASK_PLUS)
     if not _wait_for(context, _dialog_open, 8.0):
+        if is_stopping(context):
+            return "stopped"
         logger.warning("快速炼金：点「+」后没等到「选择材料」弹窗。")
         return "fail"
 
@@ -319,6 +331,8 @@ def _one_round(context: Context, index: int, total: int) -> str:
             lambda scan: _pick(scan, ROI_SORT_DROPDOWN, SORT_QUANTITY_TEXT) is not None,
             5.0,
         ):
+            if is_stopping(context):
+                return "stopped"
             logger.warning("快速炼金：排序下拉没展开或没认到「道具数量」。")
             return "fail"
         lines = _scan(context)
@@ -341,13 +355,22 @@ def _one_round(context: Context, index: int, total: int) -> str:
         lambda scan: _pick(scan, ROI_ALCHEMY_BAR, START_TEXT) is not None,
         10.0,
     ):
+        if is_stopping(context):
+            return "stopped"
         logger.warning("快速炼金：确定之后底部没有出现「开始炼金」，多半是没材料可加，提前收工。")
         return "empty"
 
+    # 用户要求：点「确定」到点「开始炼金」之间留 1 秒，等加料动画/进度条落定再点。
+    time.sleep(1.0)
+
     # 开始炼金 → 关领奖弹窗。
+    if is_stopping(context):
+        return "stopped"
     lines = _scan(context)
     _click_text(context, lines, ROI_ALCHEMY_BAR, (START_TEXT,), START_POINT)
     if not _close_reward_popup(context):
+        if is_stopping(context):
+            return "stopped"
         return "fail"
 
     logger.info(f"快速炼金：第 {index}/{total} 次完成。")
@@ -384,19 +407,34 @@ class QuickAlchemy(CustomAction):
             return CustomAction.RunResult(success=False)
 
         if not _goto_alchemy(context):
+            if is_stopping(context):
+                logger.info("快速炼金：收到停止请求，已中断。")
             return CustomAction.RunResult(success=False)
 
         done = 0
+        stopped = False
         for index in range(1, times + 1):
             outcome = _one_round(context, index, times)
             if outcome == "done":
                 done += 1
                 continue
+            if outcome == "stopped":
+                stopped = True
+                logger.info(f"快速炼金：收到停止请求，已中断（完成 {done}/{times} 次）。")
+                break
             if outcome == "empty":
                 logger.warning(f"快速炼金：没有可用材料，已提前结束（完成 {done}/{times} 次）。")
                 break
+            if is_stopping(context):
+                stopped = True
+                logger.info(f"快速炼金：收到停止请求，已中断（完成 {done}/{times} 次）。")
+                break
             logger.warning(f"快速炼金：第 {index} 次失败，停止循环（完成 {done}/{times} 次）。")
             break
+
+        if stopped:
+            # 用户主动停止时不再跑「回主页」，避免和客户端的停止流程抢控制权。
+            return CustomAction.RunResult(success=False)
 
         logger.info(f"快速炼金：本次完成 {done}/{times} 次，准备返回主页。")
         _return_home(context)

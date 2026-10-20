@@ -33,6 +33,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 from utils import logger
+from utils.interrupt import is_stopping
 from utils.params import parse_params
 
 from .dungeon_challenge import (
@@ -993,7 +994,7 @@ def _wait_idling(context: Context, timeout: float = _IDLING_TIMEOUT) -> bool:
         if _dialog_open(context) is False and _on_list_page(context) and _idle_not_running(context):
             logger.warning("自动挂机：确定后仍显示「没有正在战斗中的副本」，挂机没起来。")
             return False
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return False
         time.sleep(1.0)
 
@@ -1030,6 +1031,9 @@ class AutoIdleRun(CustomAction):
             return CustomAction.RunResult(success=True)
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
+            if is_stopping(context):
+                logger.info("自动挂机：收到停止请求，中断本次流程。")
+                return CustomAction.RunResult(success=False)
             logger.info("自动挂机：第 {} 次尝试。", attempt)
             if not _enter_dialog(context):
                 return CustomAction.RunResult(success=False)

@@ -34,6 +34,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 from utils import logger
+from utils.interrupt import is_stopping
 from utils.params import parse_params
 
 # 复用既有模块里**已验证**的识别/点击基元与战斗常量（机神降临 = 同一套多人房间战 UI）。
@@ -390,7 +391,7 @@ def _wait_contains(context: Context, roi: Sequence[float], wanted: str, timeout:
         box = _find_contains(context, roi, wanted)
         if box is not None:
             return box
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return None
         time.sleep(0.8)
 
@@ -443,7 +444,7 @@ def _dismiss_friend_request(context: Context, timeout: float = 0.0) -> bool:
             _click_box(context, cancel)
             time.sleep(_CLICK_SETTLE * 0.6)
             return True
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return False
         time.sleep(_FRIEND_POPUP_POLL)
 
@@ -812,7 +813,7 @@ def _wait_room_setup(context: Context, timeout: float) -> str | None:
             return "support"
         if _find_in(context, _FORMATION_ANCHOR_ROI, _FORMATION_ANCHOR_TEXT) is not None:
             return "formation"
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return None
         time.sleep(0.8)
 
@@ -1372,6 +1373,9 @@ class DungeonChallengeChallenge(CustomAction):
 
         done = 0
         for index in range(times):
+            if is_stopping(context):
+                logger.info("副本挑战：收到停止请求，中断后续挑战（已完成 {}/{} 次）。", done, times)
+                break
             logger.info("副本挑战：第 {}/{} 次开始。", index + 1, times)
             outcome = _run_once(context, series=series, keyword=keyword, difficulty=difficulty)
             if outcome == "exhausted":
