@@ -32,7 +32,22 @@ $env:ANDROID_HOME = 'D:\Android\Sdk'
 .\Android\build.ps1 -Version 0.1.5
 ```
 
-脚本依次做：克隆 MaaFwApp → 铺 MaaFramework `.so` → 组 agent 运行时 → 写 `local.properties` → `assembleRelease`。
+脚本依次做：克隆 MaaFwApp → 覆盖 `Android/overrides/` 里的源码改动 → 铺 MaaFramework `.so` → 组 agent 运行时 → 写 `local.properties` → `assembleRelease`。
+
+### 对 MaaFwApp 的源码改动
+
+上游 MaaFwApp 的显示相关逻辑写死了横屏，本项目要跑竖屏（720×1280）配方，因此有 3 个文件被改过：
+
+| 文件 | 改动 |
+| --- | --- |
+| `app/.../runner/DisplayResolution.kt` | 注释校正（预设校验不再限定横屏） |
+| `app/.../ui/tasks/TasksPreviewSection.kt` | 全屏预览按虚拟屏方向锁屏：竖屏档位锁竖屏，横屏档位才锁横屏 |
+| `build-logic/.../gradle/BuildProfile.kt` | `display.presets[]` 校验从「必须 `width > height`」放宽为「不能是正方形」 |
+
+两个位置保存同一份改动，含义不同：
+
+- `Android/overrides/`：改完后的**完整文件**，按上游相对路径镜像存放；`build.ps1` 克隆完 MaaFwApp 后整文件覆盖，构建一定用上这些改动
+- `Android/patches/0001-portrait-orientation.patch`：相对上游 `bc55dac` 的 diff，只用于审阅与升级上游时重做改动（`git apply` 到 MaaFwApp 目录即可）
 
 ### 手动构建
 
@@ -100,7 +115,8 @@ MaaFwApp 的前台模式按手机真实分辨率截图（`MaaRunner.buildControl
   决定（当前 5.13.0），与 `requirements.txt` 里的版本无关；移植前请确认 agent 未使用更新的 API
 - 只出 `arm64-v8a`；`build.debugAbi` / `build.releaseAbi` 可调整
 - 重装且 versionCode 未变时，设备可能复用旧解包；改完资源请清应用数据或「重新解压资源」
-- 后台模式（虚拟屏）只接受横屏档位，本项目不使用
+- 后台模式（虚拟屏）需要配 `display.presets` 的竖屏档位（校验已放开），本项目仍用前台模式
+- `overrides/` 是整文件覆盖而非合并：上游改了同名文件时，需要人工比对后重新生成 `patches/`
 
 ## 目录说明
 
@@ -108,5 +124,8 @@ MaaFwApp 的前台模式按手机真实分辨率截图（`MaaRunner.buildControl
 | --- | --- |
 | `Android/pi-profile.yaml` | 打包配方（资源白名单、agent 运行时、包名/图标/显示模式） |
 | `Android/build.ps1` | 一键构建 |
+| `Android/overrides/` | 对 MaaFwApp 源码的改动（整文件，构建时覆盖） |
+| `Android/patches/` | 上述改动的 diff（相对上游 `bc55dac`），供审阅与升级 |
+| `Android/maahj-config-android.json` | 手机端导出的一份运行配置（任务/选项/设置），可导入参考 |
 | `Android/logo.png` | APK 启动图标 |
 | `.build/`（不入库） | MaaFwApp 源码、agent 运行时、Gradle 中间产物 |

@@ -1,0 +1,67 @@
+diff --git a/app/src/main/java/com/aliothmoon/maafw/runner/DisplayResolution.kt b/app/src/main/java/com/aliothmoon/maafw/runner/DisplayResolution.kt
+index 64aee89..035893b 100644
+--- a/app/src/main/java/com/aliothmoon/maafw/runner/DisplayResolution.kt
++++ b/app/src/main/java/com/aliothmoon/maafw/runner/DisplayResolution.kt
+@@ -26,7 +26,7 @@ data class ResolutionPreset(val label: String, val resolution: DisplayResolution
+ /**
+  * 可选的预设列表：打包配方（build profile 的 `display.presets`）写了就整体替换内置两档，第一项是默认
+  *
+- * 配方的校验（横屏、dpi 范围、不重复）在构建期做完，这里只拆 `label|width|height|dpi`，拆不开的跳过
++ * 配方的校验（尺寸、dpi 范围、不重复）在构建期做完，这里只拆 `label|width|height|dpi`，拆不开的跳过
+  */
+ object ResolutionPresets {
+ 
+diff --git a/app/src/main/java/com/aliothmoon/maafw/ui/tasks/TasksPreviewSection.kt b/app/src/main/java/com/aliothmoon/maafw/ui/tasks/TasksPreviewSection.kt
+index 719efdd..9531172 100644
+--- a/app/src/main/java/com/aliothmoon/maafw/ui/tasks/TasksPreviewSection.kt
++++ b/app/src/main/java/com/aliothmoon/maafw/ui/tasks/TasksPreviewSection.kt
+@@ -249,12 +249,21 @@ internal fun FullscreenPreview(
+         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+     }
+ 
+-    // 虚拟屏是横的，竖着看只有中间一条；退出时还原用户原本的方向设置
+-    DisposableEffect(activity) {
++    // 全屏方向跟着预览走：虚拟屏是竖的就锁竖屏，横的才锁横屏。写死横屏会让竖屏配方
++    // （如 720×1280 的游戏）一点开就把整个 app 转过去。退出时还原用户原本的方向设置
++    DisposableEffect(activity, resolution) {
+         val original = activity?.requestedOrientation
+-        if (activity?.resources?.configuration?.orientation != Configuration.ORIENTATION_LANDSCAPE) {
+-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
++        val wanted = if (resolution.width >= resolution.height) {
++            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
++        } else {
++            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
++        }
++        val current = activity?.resources?.configuration?.orientation
++        val alreadyThere = when (wanted) {
++            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE -> current == Configuration.ORIENTATION_LANDSCAPE
++            else -> current == Configuration.ORIENTATION_PORTRAIT
+         }
++        if (!alreadyThere) activity?.requestedOrientation = wanted
+         onDispose { if (original != null) activity.requestedOrientation = original }
+     }
+ 
+diff --git a/build-logic/convention/src/main/kotlin/com/aliothmoon/maafw/gradle/BuildProfile.kt b/build-logic/convention/src/main/kotlin/com/aliothmoon/maafw/gradle/BuildProfile.kt
+index 7704259..23ea8d4 100644
+--- a/build-logic/convention/src/main/kotlin/com/aliothmoon/maafw/gradle/BuildProfile.kt
++++ b/build-logic/convention/src/main/kotlin/com/aliothmoon/maafw/gradle/BuildProfile.kt
+@@ -56,7 +56,8 @@ private val descriptorJson = Json { prettyPrint = true }
+  */
+ /**
+  * One background virtual display option; the app turns the list into ResolutionPresets
+- * Landscape only: MaaFramework pipelines and the games they drive are all authored against landscape frames
++ * Orientation is the recipe's call: the VD size is what the controller reports as screen_resolution
++ * and what every captured frame measures, so a portrait game needs a portrait preset here
+  */
+ internal data class ResolutionPresetSpec(
+     val label: String,
+@@ -205,7 +206,8 @@ private fun Map<*, *>.toResolutionPreset(): ResolutionPresetSpec {
+     val width = int("width")
+     val height = int("height")
+     val dpi = int("dpi")
+-    require(width > height) { "display.presets[] must be landscape, got ${width}x$height" }
++    // 横竖都可以：竖屏游戏必须配竖屏 VD，否则截出来的帧与 ROI 对不上
++    require(width != height) { "display.presets[] must not be square, got ${width}x$height" }
+     require(dpi in PRESET_DPI_RANGE) { "display.presets[].dpi must be within $PRESET_DPI_RANGE, got $dpi" }
+     val label = text("label") ?: "${height}P"
+     // The label is one field of a pipe separated BuildConfig string literal

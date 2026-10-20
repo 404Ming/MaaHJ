@@ -1,0 +1,3 @@
+# 补丁必须保持 LF，否则 git apply 会因 CRLF 报空白错误
+Android/patches/*.patch text eol=lf
+*.kt text eol=lf

@@ -1,0 +1,252 @@
+{
+    "format": "maafwapp-config",
+    "formatVersion": 1,
+    "exportedAt": 1792500187609,
+    "app": {
+        "applicationId": "com.aliothmoon.maafw.maahj",
+        "versionName": "0.1.5"
+    },
+    "project": {
+        "name": "maahj",
+        "version": "v0.1.5"
+    },
+    "configuration": {
+        "themeMode": "System",
+        "activeResourceName": "base",
+        "activeControllerName": null,
+        "globalOptionValues": {
+            "发送多人支援请求": {
+                "type": "single",
+                "case": "No"
+            }
+        },
+        "controllerOptionValues": {},
+        "resourceOptionValues": {},
+        "configurations": [
+            {
+                "id": "2f8d6fe8-b664-41e1-8b93-70a79555bb18",
+                "name": "日常收菜",
+                "tasks": [
+                    {
+                        "taskName": "LaunchGame",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "b40fa14b-0b3c-4e73-8f16-e0653a7cd4d4"
+                    },
+                    {
+                        "taskName": "Daily",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "9a6fc1a6-7ec0-4f32-9299-3e0719927a39"
+                    },
+                    {
+                        "taskName": "Weekly",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "5d45dc3b-e134-43ed-a93c-05627b2ba568"
+                    },
+                    {
+                        "taskName": "Shop",
+                        "enabled": true,
+                        "optionValues": {
+                            "折扣礼包商品": {
+                                "type": "multiple",
+                                "cases": [
+                                    "每日福利",
+                                    "每周福利",
+                                    "冒险祈愿超值礼包"
+                                ]
+                            },
+                            "公会商店商品": {
+                                "type": "multiple",
+                                "cases": [
+                                    "星间通信书"
+                                ]
+                            },
+                            "征伐印记商店商品": {
+                                "type": "multiple",
+                                "cases": [
+                                    "星间通信书"
+                                ]
+                            }
+                        },
+                        "customLabel": null,
+                        "instanceId": "50018fa2-4184-461a-bbce-55edf061f550"
+                    },
+                    {
+                        "taskName": "Knights",
+                        "enabled": true,
+                        "optionValues": {
+                            "公会挖宝": {
+                                "type": "single",
+                                "case": "No"
+                            }
+                        },
+                        "customLabel": null,
+                        "instanceId": "0f298c0a-6ef9-439a-a52e-55897452c361"
+                    },
+                    {
+                        "taskName": "AncientTower",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "ac39f007-1e48-499c-a94b-453447dbfbee"
+                    },
+                    {
+                        "taskName": "Mail",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "69522575-0b33-4f39-b2fa-d768c161cbd0"
+                    },
+                    {
+                        "taskName": "AutoIdle",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "70abb06a-43c7-41d8-b279-350cfe5379ae"
+                    }
+                ]
+            },
+            {
+                "id": "9ef0458f-4d76-4eb7-b99a-52b51cfb72cd",
+                "name": "全部功能",
+                "tasks": [
+                    {
+                        "taskName": "Daily",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "53418ad0-31c0-483b-b066-15237610de02"
+                    },
+                    {
+                        "taskName": "Weekly",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "64446ced-561a-4fa2-8b7e-5ec7e01c0f67"
+                    },
+                    {
+                        "taskName": "Shop",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "c28ae54e-210c-4753-b3cd-6ff33ee1958a"
+                    },
+                    {
+                        "taskName": "Alchemy",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "312a9557-9b8f-4f9e-bf25-c1e05fadee7b"
+                    },
+                    {
+                        "taskName": "Knights",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "47dab1ab-986e-4947-9fbc-ce0403d1f319"
+                    },
+                    {
+                        "taskName": "AncientTower",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "cea044e2-948e-487a-9058-73334d9e5431"
+                    },
+                    {
+                        "taskName": "Mail",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "7328b5b1-a807-4a7e-8aa4-2910254188ff"
+                    },
+                    {
+                        "taskName": "MachineGodDescent",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "71fda938-bd0a-444e-a17a-4e86ed55549f"
+                    },
+                    {
+                        "taskName": "DungeonChallenge",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "9374c0b3-4d83-45a0-9e42-71cc051b0e09"
+                    },
+                    {
+                        "taskName": "GameplayChallenge",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "b78787a5-8962-4421-8b20-29e4339a3c54"
+                    },
+                    {
+                        "taskName": "AutoIdle",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "8464acca-d648-4e14-a7b8-c31f74ad197d"
+                    },
+                    {
+                        "taskName": "SkipTurnOnly",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "c5b95e81-f4bd-47be-aa28-776f5f4602ff"
+                    },
+                    {
+                        "taskName": "RefillStaminaOnly",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "b1049a30-cc91-469a-a23c-0be1002c22d2"
+                    },
+                    {
+                        "taskName": "LaunchGame",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "59164049-512e-4435-9616-028064b2d875"
+                    },
+                    {
+                        "taskName": "BackToMainHub",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "c5380d3c-f93c-4693-bc49-4cda94f5e58d"
+                    }
+                ]
+            }
+        ],
+        "activeConfigurationId": "2f8d6fe8-b664-41e1-8b93-70a79555bb18"
+    },
+    "schedules": [],
+    "appSettings": {
+        "run_mode": "BACKGROUND",
+        "overlay_control_mode": "FLOAT_BALL",
+        "screen_saver_enabled": "false",
+        "close_app_after_task": "false",
+        "touch_preview_enabled": "true",
+        "debug_mode": "false",
+        "save_on_error": "true",
+        "theme_style": "DEFAULT",
+        "ui_scale": "auto",
+        "wallpaper_image_alpha": "80",
+        "wallpaper_scrim": "25",
+        "wallpaper_blur": "0",
+        "event_notification_level": "DEFAULT",
+        "run_duration_limit_enabled": "false",
+        "run_duration_limit_minutes": "240",
+        "telemetry_enabled": "true",
+        "auto_check_update": "true",
+        "auto_download_update": "false",
+        "update_channel": "STABLE",
+        "update_source": "MIRRORCHYAN",
+        "pip_on_home": "true"
+    }
+}

@@ -5,12 +5,13 @@
 .DESCRIPTION
     步骤与 MaaFwApp/INTEGRATION.md 一致：
       1. 克隆/更新 MaaFwApp
-      2. setup_maa_framework.py 铺设 MaaFramework 的 Android .so
+      2. 用 overrides/ 覆盖 MaaFwApp 的源码文件（竖屏支持等改动）
+      3. setup_maa_framework.py 铺设 MaaFramework 的 Android .so
          —— tag 必须与 MaaAgentCoreAndroid 提供的 maafw Python 版本一致，
             否则 agent 侧调用原生库会失败（当前 core 是 maafw 5.13.0 → v5.13.0）
-      3. build_agent_bundle.py 组 Python agent 运行时（CPython + 项目依赖）
-      4. 写 local.properties（sdk.dir / pi.profile / ABI / 版本号）
-      5. gradlew :app:assembleRelease
+      4. build_agent_bundle.py 组 Python agent 运行时（CPython + 项目依赖）
+      5. 写 local.properties（sdk.dir / pi.profile / ABI / 版本号）
+      6. gradlew :app:assembleRelease
 
 .PARAMETER Version
     写进 APK 的 versionName，默认 0.1.5。
@@ -50,6 +51,20 @@ if ($Proxy) {
 if (-not (Test-Path $MaaFwAppDir)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $MaaFwAppDir) | Out-Null
     git clone https://github.com/Aliothmoon/MaaFwApp.git $MaaFwAppDir
+}
+
+# 1b. 本项目对 MaaFwApp 源码的改动（竖屏支持），按上游相对路径整文件覆盖
+#     改动明细见 patches/*.patch，覆盖内容见 overrides/
+$overrides = Join-Path $PSScriptRoot 'overrides'
+$MaaFwAppDir = (Resolve-Path $MaaFwAppDir).Path
+if (Test-Path $overrides) {
+    Get-ChildItem -Recurse -File $overrides | ForEach-Object {
+        $rel = $_.FullName.Substring($overrides.Length + 1)
+        $target = Join-Path $MaaFwAppDir $rel
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+        Copy-Item $_.FullName $target -Force
+        Write-Host "override $rel"
+    }
 }
 Push-Location $MaaFwAppDir
 
