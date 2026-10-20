@@ -538,30 +538,6 @@
             ],
             "default_case": "友情祈愿"
         },
-        "奥义释放": {
-            "type": "switch",
-            "label": "奥义释放",
-            "description": "战斗模块是否释放奥义，由全局任务配置「战斗设置」统一设置。",
-            "cases": [
-                {
-                    "name": "Yes",
-                    "pipeline_override": {
-                        "Flag_BattleUltimate": {
-                            "enabled": true
-                        }
-                    }
-                },
-                {
-                    "name": "No",
-                    "pipeline_override": {
-                        "Flag_BattleUltimate": {
-                            "enabled": false
-                        }
-                    }
-                }
-            ],
-            "default_case": "Yes"
-        },
         "跳过回合": {
             "type": "switch",
             "label": "跳过回合",
@@ -579,54 +555,6 @@
                     "name": "No",
                     "pipeline_override": {
                         "Flag_BattleSkipTurn": {
-                            "enabled": false
-                        }
-                    }
-                }
-            ],
-            "default_case": "Yes"
-        },
-        "是否自动": {
-            "type": "switch",
-            "label": "是否自动",
-            "description": "战斗模块是否自动战斗，由全局任务配置「战斗设置」统一设置。",
-            "cases": [
-                {
-                    "name": "Yes",
-                    "pipeline_override": {
-                        "Flag_BattleAuto": {
-                            "enabled": true
-                        }
-                    }
-                },
-                {
-                    "name": "No",
-                    "pipeline_override": {
-                        "Flag_BattleAuto": {
-                            "enabled": false
-                        }
-                    }
-                }
-            ],
-            "default_case": "Yes"
-        },
-        "战斗2倍速": {
-            "type": "switch",
-            "label": "战斗2倍速",
-            "description": "战斗模块是否使用 2 倍速，由全局任务配置「战斗设置」统一设置。",
-            "cases": [
-                {
-                    "name": "Yes",
-                    "pipeline_override": {
-                        "Flag_BattleSpeed2x": {
-                            "enabled": true
-                        }
-                    }
-                },
-                {
-                    "name": "No",
-                    "pipeline_override": {
-                        "Flag_BattleSpeed2x": {
                             "enabled": false
                         }
                     }
@@ -3473,10 +3401,7 @@
         }
     },
     "global_option": [
-        "奥义释放",
         "跳过回合",
-        "是否自动",
-        "战斗2倍速",
         "体力药消耗优先级",
         "水属性编队助战",
         "火属性编队助战",
