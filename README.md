@@ -67,8 +67,15 @@ MaaHJ 的意思是 Maa 哼唧
 
 **Android 端（哼唧小助手 APK）**
 
+> **配置开始任务前，请确保必要权限已开启**：Root（或 Shizuku）/ 悬浮窗 / 存储访问 / 电源管理白名单 / 无障碍服务 / 通知权限。缺权限不会立刻报错，而是跑到一半被系统杀掉或点不动，先花一分钟在这页确认一遍。
+
+<img alt="Android 权限与运行模式" src="./docs/images/settings-maahj-android.png" width="300px"/>
+
 1. 打开「任务」页：还没有配置时，点上方选择器新建空配置，或点「设置」滑动到「导入配置」导入作者预设配置 [maahj-config-android.json](https://github.com/404Ming/MaaHJ/releases/latest/download/maahj-config-android.json)（点击直接下载）
 2. 全局选项（作用于每次运行）在「设置」里「任务设置」改
+
+<img alt="Android 任务设置" src="./docs/images/settings-maahj-android-options.png" width="300px"/>
+
 3. 点「开始任务」开始跑；运行中点预览可全屏查看，返回键退出全屏
 
 两端可选的选项含义一致：
