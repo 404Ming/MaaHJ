@@ -6,8 +6,13 @@
             "type": "DoNothing"
         },
         "timeout": 20000,
+        // 候选顺序：主页「每日任务」→（认不到时）主页「菜单」→ 菜单页「日常」→ 页内主循环。
+        // 兜底两条是用户新增需求：有些情况下主页右侧功能列里看不到「每日任务」，
+        // 走「菜单 → 日常」同样能进每日任务页（实机验证：菜单页「日常」格点进去就是本页，页签停在「日常」）。
         "next": [
             "[JumpBack]Daily_OpenPage",
+            "[JumpBack]Daily_OpenMenu",
+            "[JumpBack]Daily_EnterFromMenu",
             "Daily_Main"
         ]
     },
@@ -32,6 +37,64 @@
         },
         "post_delay": 500,
         "timeout": 2500
+    },
+    "Daily_OpenMenu": {
+        // 兜底入口第一跳：主页底部导航最右侧「菜单」（实测 OCR box (636,1228,57,36)）。
+        // 只有主页认不到「每日任务」时才会走到这里（候选顺序在其后）。
+        // max_hit 1：导航是一次性动作，回到主页后监督节点重新判定时不会又跑一遍。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1000,
+        "timeout": 3000,
+        "next": [
+            "Daily_Start"
+        ]
+    },
+    "Daily_EnterFromMenu": {
+        // 兜底入口第二跳：菜单页功能格里的「日常」（实测 OCR box (195,977,52,32)）。
+        // 点它直接落到每日任务页（页签停在「日常」），后面的主循环照常跑。
+        // ⚠️ ROI 只框菜单页那一格（y 930~1015）：每日任务页底部也有「日常」页签
+        //    （实测 box (173,1106,59,38)），框宽了会在本页把自己再点一遍、还会让
+        //    [JumpBack] 反复命中空转。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    160,
+                    930,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "日常"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "Daily_Start"
+        ]
     },
     "Daily_Main": {
         // 页内主循环：①先领完可领奖励 ②两个挑战都尝试过且奖杯≥30 则领里程碑奖励并回主页收尾

@@ -21,7 +21,10 @@
             "AncientTower_HarvestLeft",
             "AncientTower_HarvestDone",
             "AncientTower_OpenPanel",
-            "AncientTower_EnterTower"
+            "AncientTower_EnterTower",
+            "AncientTower_OpenGameplay",
+            "AncientTower_EnterTowerFromGameplay",
+            "AncientTower_SwipeGameplayList"
         ],
         "on_error": [
             "AncientTower_BackHome"
@@ -50,6 +53,106 @@
             "type": "Click"
         },
         "post_delay": 500,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_OpenGameplay": {
+        // 兜底入口第一跳（用户新增需求）：主页底部导航「玩法」（沿用 GameplayChallenge_OpenGameplay
+        // 的 ROI [330,1195,140,60]，实测命中）。
+        // 只有主页认不到「古代之塔」时才走到这里（候选顺序在其后）。
+        // max_hit 1：导航一次性，避免流程收尾后监督节点重判又开一次玩法页。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    330,
+                    1195,
+                    140,
+                    60
+                ],
+                "expected": [
+                    "玩法"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_EnterTowerFromGameplay": {
+        // 兜底入口第二跳：玩法列表里的「古代之塔」卡片（实测 OCR box (435,242,245,79)，标题大字）。
+        // ⚠️ 用户说明「位置不固定」：卡片会随版本/活动增删上下移动，所以这里只框**列表主体**
+        //    （y 120~1020，避开顶部「玩法」标题），行位置完全交给识别结果，点按钮中心；
+        //    当前屏找不到就由 AncientTower_SwipeGameplayList 向下滚一屏再找。
+        // 主页右侧功能列的「古代之塔」在 x 560~720，不在本 ROI 内，不会互相顶替。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    40,
+                    120,
+                    640,
+                    900
+                ],
+                "expected": [
+                    "古代之塔"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "AncientTower_Start"
+        ]
+    },
+    "AncientTower_SwipeGameplayList": {
+        "max_hit": 3,
+        // 列表向下滚动一屏（沿用 GameplayChallenge_SwipeList 的手势与门控思路）。
+        // 门控用**页面标题「玩法」**（实测 box (116,28,97,49)）而不是列表里的副本名：
+        // 实测每日任务页上也有「火元素试炼」等文案，用「元素试炼」当门控会在每日任务页误滑。
+        // ROI 只框左上标题（y<100），主页底部导航的「玩法」在 (394,1221)，不会误命中。
+        // max_hit 3：古代之塔最多被挤到第 2~3 屏，滚完还找不到就放弃（交给异常/收尾）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    80,
+                    10,
+                    220,
+                    90
+                ],
+                "expected": [
+                    "玩法"
+                ]
+            }
+        },
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    360,
+                    1000
+                ],
+                "end": [
+                    360,
+                    520
+                ],
+                "duration": 300
+            }
+        },
+        "post_delay": 800,
         "timeout": 3000,
         "next": [
             "AncientTower_Start"

@@ -11,10 +11,16 @@
         ]
     },
     "Weekly_OpenPage": {
-        // 主页右侧「每日任务」→ 每日任务页底部「周常」页签。两节点都用 [JumpBack] 回到本节点，
-        // 已在该页时对应识别自然落空、由另一节点接上，幂等可重复进入。
+        // 主页右侧「每日任务」→ 每日任务页底部「周常」页签。各节点都用 [JumpBack] 回到本节点，
+        // 已在该页时对应识别自然落空、由下一节点接上，幂等可重复进入。
+        // 兜底两条（用户新增需求）：主页认不到「每日任务」时走「菜单 → 日常」进页，再点「周常」页签。
+        // timeout 20000 = 本轮候选的识别预算：现在有 5 个 OCR 候选（每日任务/菜单/日常/周常/主循环），
+        // 逐个截图识别需要留足时间，太紧会 reco_timeout → bad next。
+        "timeout": 20000,
         "next": [
             "[JumpBack]Weekly_ClickDailyEntry",
+            "[JumpBack]Weekly_ClickMenu",
+            "[JumpBack]Weekly_ClickDailyFromMenu",
             "[JumpBack]Weekly_ClickWeeklyTab",
             "Weekly_Main"
         ]
@@ -40,6 +46,63 @@
         },
         "post_delay": 500,
         "timeout": 2500,
+        "next": [
+            "[JumpBack]Weekly_OpenPage"
+        ]
+    },
+    "Weekly_ClickMenu": {
+        // 兜底入口第一跳：主页底部导航最右侧「菜单」（实测 OCR box (636,1228,57,36)）。
+        // 只在主页认不到「每日任务」时才走到这里（候选顺序在其后）。
+        // max_hit 1：导航一次性，避免监督节点回环重跑。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1000,
+        "timeout": 3000,
+        "next": [
+            "[JumpBack]Weekly_OpenPage"
+        ]
+    },
+    "Weekly_ClickDailyFromMenu": {
+        // 兜底入口第二跳：菜单页功能格里的「日常」（实测 OCR box (195,977,52,32)），
+        // 点进去就是每日任务页，下一轮由 Weekly_ClickWeeklyTab 点底部「周常」页签。
+        // ⚠️ ROI 只框菜单页那一格（y 930~1015）：每日任务页底部「日常」页签在 (173,1106,59,38)，
+        //    框宽了会在页内互点、[JumpBack] 反复命中空转。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    160,
+                    930,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "日常"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
         "next": [
             "[JumpBack]Weekly_OpenPage"
         ]
