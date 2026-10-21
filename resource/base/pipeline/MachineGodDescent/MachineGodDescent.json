@@ -14,15 +14,18 @@
         // 列表里有 3 个 OCR 候选（Exception_Start / OpenMenu / PageDock），
         // 逐个截图+识别会超过 4000ms（框架日志 `Task timeout [duration=4101ms] [reco_timeout=4000ms]`），
         // 列表被中断 ⇒ 同样报 `PipelineTask bad next` ⇒ 任务判 FAILED。
-        // 现在列表里有 6 个 OCR 候选（Exception_Start / OpenMenu / OpenActivityEntry /
-        // OpenEventCard / ClaimExploreReward / PageDock），放宽到 12000ms 留足评估时间。
-        "timeout": 12000,
+        // 现在列表里有 8 个 OCR 候选（Exception_Start / OpenMenu / OpenActivityEntry /
+        // OpenEventCard / ClaimExploreReward / DailyLoginPopup / CloseObtainTreasure / PageDock），
+        // 放宽到 16000ms 留足评估时间。
+        "timeout": 16000,
         "next": [
             "[JumpBack]Exception_Start",
             "[JumpBack]MachineGodDescent_OpenMenu",
             "[JumpBack]MachineGodDescent_OpenActivityEntry",
             "[JumpBack]MachineGodDescent_OpenEventCard",
             "[JumpBack]MachineGodDescent_ClaimExploreReward",
+            "[JumpBack]MachineGodDescent_DailyLoginPopup",
+            "[JumpBack]MachineGodDescent_CloseObtainTreasure",
             "MachineGodDescent_PageDock",
             "[JumpBack]MachineGodDescent_UnknownFallback",
             "MachineGodDescent_StopTask"
@@ -162,6 +165,91 @@
         },
         "action": {
             "type": "Click"
+        },
+        // 领完 1s 左右才会叠上「每日登录」框（实测），留 1.5s 给它出现——
+        // 太快回监督节点时弹窗还没画出来，候选会全落空并误进 UnknownFallback 异常链
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_Start"]
+    },
+    "MachineGodDescent_DailyLoginPopup": {
+        // 入口弹窗第二层：领完「自动获取收获」后，活动当天首次进入还会再弹「每日登录」奖励框
+        // （正文「活动期间每日首次登录可获得300侦察工具」）。
+        // 实测 2026-10-21：标题「每日登录」OCR box (288,357,142,43)，按钮「确认」(326,813,67,36)。
+        // ⚠️ 该框同样盖住整页且背景压暗，「探索」认不到 ⇒ 不处理就落进 UnknownFallback 空转。
+        // 拆成「判定 → 点按钮」两步：点的是识别出来的「确认」框中心，不写死坐标。
+        // max_hit 1：每日只弹一次；真的反复出现也有 UnknownFallback 兜底。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    335,
+                    210,
+                    90
+                ],
+                "expected": ["每日登录"]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": ["MachineGodDescent_DailyLoginConfirm"]
+    },
+    "MachineGodDescent_DailyLoginConfirm": {
+        // 「每日登录」框底部按钮「确认」：ROI 只框按钮带（实测 box (326,813,67,36)），
+        // 与弹窗标题、正文都不相交；点完下一步会弹「恭喜获得」浮层，由 CloseObtainTreasure 接手。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    300,
+                    790,
+                    130,
+                    80
+                ],
+                "expected": ["确认"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_Start"]
+    },
+    "MachineGodDescent_CloseObtainTreasure": {
+        // 入口弹窗第三层：领奖后叠一层全屏「恭喜获得 OBTAIN TREASURE」浮层，
+        // 底部提示「点击空白区域关闭」（实测 OCR box (275,946,169,23)）。
+        // ⚠️ 浮层期间整页不可点：点道具图标会打开「物品详情」再套一层，必须点空白处才关。
+        // 固定点取左上空白 (90,880,60,40)，远离道具图标 (311,408)、「300」和底部「探索」(373,1068)。
+        // max_hit 2：领探索奖励与每日登录各可能产生一层浮层。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    925,
+                    240,
+                    70
+                ],
+                "expected": ["点击空白区域关闭"]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    90,
+                    880,
+                    60,
+                    40
+                ]
+            }
         },
         "post_delay": 500,
         "timeout": 3000,
