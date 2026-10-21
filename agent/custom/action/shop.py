@@ -34,6 +34,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 from utils import logger
+from utils.interrupt import is_stopping
 from utils.maa_types import ocr_results
 from utils.params import parse_params
 
@@ -501,6 +502,9 @@ def _buy_card(context: Context, tap: tuple[int, int]) -> str:
     - ``purchase``：礼包页的礼包详情弹窗，底部「购买」一点即扣费（没有滑条）；
     - ``claim``：礼包页的免费礼包，弹窗底部是「领取」。
     """
+    if is_stopping(context):
+        # 已经收到停止请求：绝不能再点卡片，否则点下去就是一笔真实扣费。
+        return ""
     _click(context, *tap)
     state, lines = _dialog_state(context)
     if state == "detail":
@@ -596,8 +600,13 @@ class ShopSelectionGate(CustomAction):
 
 
 def _scroll_content_to_top(context: Context, times: int = 4) -> None:
-    """把内容列表滚回顶部，避免上一次运行残留的滚动位置让上半部分商品扫不到。"""
+    """把内容列表滚回顶部，避免上一次运行残留的滚动位置让上半部分商品扫不到。
+
+    每次划屏前查一次停止标志：用户点了「停止」就别再往列表上划。
+    """
     for _ in range(times):
+        if is_stopping(context):
+            return
         _swipe(context, SCROLL_UP_FROM, SCROLL_UP_TO, 800)
         time.sleep(0.6)
 
@@ -631,6 +640,11 @@ def _buy_item(
         _scroll_content_to_top(context)
 
     while True:
+        # 停止是协作式的：框架只在节点边界检查 stopping，动作内部不看标志就会「停不下来」。
+        # 循环入口查一次，把停止延迟压到一个 OCR 周期的量级（约 0.5~1 秒）。
+        if is_stopping(context):
+            logger.info(f"商店购买：收到停止请求，中断 {item.label} 的购买。")
+            break
         lines = _ocr(context, _screencap(context), roi)
         cards = _cards_for(layout, lines)
         if allowed_names is not None:
@@ -756,6 +770,9 @@ class ShopBuySelected(CustomAction):
         bought_labels: list[str] = []
         missed_labels: list[str] = []
         for item in selected:
+            if is_stopping(context):
+                logger.info("商店购买：收到停止请求，本页剩余商品不再处理。")
+                break
             # 每件都重新读一次勾选状态：同一件商品可能被多个页面共用
             # （例如 冒险祈愿超值礼包 在每日礼包页与每周礼包页各有一个不同 SKU）。
             if not _is_enabled(context, item.node):

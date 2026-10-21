@@ -3,6 +3,10 @@
 MaaFramework 的 CustomAction 是一次阻塞调用，框架只会在节点边界检查停止标志；
 动作内部的长轮询 / 长循环如果不主动查询 `tasker.stopping`，用户点「停止」后
 Agent 仍会一直跑到动作自己返回，表现为「停止按钮没反应」。
+
+这里的显式检查用于「想在中途收尾、并自己决定返回值」的场合（例如中断前先关掉弹窗）。
+不想逐处手写的动作由 `utils.stop_guard` 兜底：它在执行层把 sleep 切片化，
+停止标志一置位就抛异常中止整个动作。
 """
 
 from __future__ import annotations

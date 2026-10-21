@@ -67,6 +67,11 @@ def run_agent(project_root_dir: str) -> int:
     # 必须在导入 maa.agent 之后调用，原因见 _log_maafw_version
     _log_maafw_version()
 
+    # 必须早于 import custom：动作的注册装饰器在模块导入时执行，装晚了就一个也包不到。
+    from utils.stop_guard import install as install_stop_guard
+
+    install_stop_guard()
+
     import custom
 
     custom.register_all()
