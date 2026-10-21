@@ -1,13 +1,17 @@
 {
     "LaunchGame_Start": {
-        // 入口：按“已在主界面 → 在登录界面 → 其它（桌面/后台/未启动）”的顺序分流。
+        // 入口：按“已在主界面 → 在登录界面 → 已在游戏内子页面 → 其它（桌面/后台/未启动）”的顺序分流。
         // next 只放条件节点：无条件 DirectHit 节点会让后面的候选永远不被识别。
+        // timeout 放宽：候选里有两处模板匹配 + 两处 OCR（AtMainHub / Login / InGame），默认 20000 容易被单步超时打断。
         "action": {
             "type": "DoNothing"
         },
+        "timeout": 25000,
         "next": [
             "LaunchGame_AtMainHub",
+            "[JumpBack]LaunchGame_LoginUpdatePopup",
             "[JumpBack]LaunchGame_Login",
+            "LaunchGame_InGame",
             "LaunchGame_Launch"
         ]
     },
@@ -29,6 +33,76 @@
         "timeout": 3000,
         "next": [
             "LaunchGame_Done"
+        ]
+    },
+    "LaunchGame_MainHubLoose": {
+        // 主页的**宽松**锚点（OCR「惑星之间」，与 BackToMainHub_AtMainHub 同 ROI/同文本）。
+        // AtMainHub 用的是模板匹配「每日任务」图标，图标可能被横幅/弹窗半遮挡；
+        // 这里补一个 OCR 锚点，避免把"已经在主页"误判成"不在游戏里"而重复 StartApp。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    170,
+                    100
+                ],
+                "expected": ["惑星之间"]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 4000
+    },
+    "LaunchGame_SubPage": {
+        // 游戏内**子页面**锚点：左下角「返回」图标（与 BackToMainHub_Back 同模板、同 ROI）。
+        // 桌面 / 其它 app / 登录页都没有这个图标，命中即说明**游戏已经在运行且在前台**。
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "roi": [
+                    0,
+                    1180,
+                    200,
+                    100
+                ],
+                "template": [
+                    "Daily/BackButton.png",
+                    "Daily/BackButton2.png"
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 4000
+    },
+    "LaunchGame_InGame": {
+        // ⚠️ 核心修复：游戏**已经在运行**时，绝不能再走 StartApp。
+        // 本 APK 客户端（MaaFwApp 虚拟屏）里对已在前台的游戏重复 StartApp，只会重新投递一次
+        // launcher Intent（虚拟屏模式 force_stop=true 且目标已在 VD 上时会跳过 kill），客户端没有
+        // moveTaskToFront 兜底 → 已有 task 可能被系统搬到主屏，虚拟屏拿不到 producer，
+        // StaleFrameGuard 只能持续换黑帧 → 用户实测的「虚拟屏无法显示游戏画面」。
+        // 所以：认到「主页锚点」或「子页面返回图标」= 游戏已在运行 → 交给 BackToMainHub 回主页；
+        // 只有桌面/未启动（两个锚点都不命中）才允许走 LaunchGame_Launch → StartApp。
+        "recognition": {
+            "type": "Or",
+            "param": {
+                "any_of": [
+                    "LaunchGame_MainHubLoose",
+                    "LaunchGame_SubPage"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 6000,
+        "next": [
+            "BackToMainHub_Start"
         ]
     },
     "LaunchGame_Login": {
@@ -53,6 +127,108 @@
         },
         "post_delay": 3000
     },
+    "LaunchGame_LoginUpdatePopup": {
+        // 登录前的更新弹窗（用户新增需求）：点击「点击登录游戏」之前先判断有没有更新弹窗。
+        // 判据用 OCR「更新」而不是模板：弹窗文案/按钮会随版本变，图标位置也不固定。
+        // ROI 取画面中部（y 250~870）：登录页底部协议文字、加载页美术图都不含「更新」，
+        // 主页/子页面不会走到本节点（只作为 Start / Launch 的候选）。
+        // max_hit 3：一轮启动最多处理 3 次更新弹窗（有的版本会先弹公告再弹更新）。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    80,
+                    250,
+                    560,
+                    620
+                ],
+                "expected": [
+                    "更新|下载|升级"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "LaunchGame_LoginUpdateConfirm"
+        ]
+    },
+    "LaunchGame_LoginUpdateConfirm": {
+        // 点更新弹窗上的「确认 / 确定」。
+        // ROI 限在弹窗下半部的按钮带（y 600~900），避开正文里的「更新」和底部协议文字；
+        // 与既有的 LaunchGame_UpdateErrorConfirm 是同一套「窄 ROI + 点识别框中心」的做法。
+        // max_hit 3：与上一个节点对齐，避免弹窗反复出现时无限点。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    150,
+                    600,
+                    420,
+                    300
+                ],
+                "expected": [
+                    "确定|确认"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "next": [
+            "LaunchGame_WaitLogin"
+        ]
+    },
+    "LaunchGame_WaitLogin": {
+        // 点完更新确认后持续等「点击登录游戏」：1 分钟（60000ms）内认不到就判定更新/下载卡住，
+        // on_error → LaunchGame_LoginTimeout 重启游戏。60s 是用户给定的超时阈值。
+        // 识别在 timeout 内会反复重试，等于每帧轮询登录按钮；认到就点（冷启动实测要点 2 次才生效，
+        // 故 max_hit 8 留余量，点完由 [JumpBack] 回到父节点继续分流）。
+        "max_hit": 8,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    270,
+                    920,
+                    210,
+                    80
+                ],
+                "expected": [
+                    "点击登录游戏"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 3000,
+        "timeout": 60000,
+        "on_error": [
+            "LaunchGame_LoginTimeout"
+        ]
+    },
+    "LaunchGame_LoginTimeout": {
+        // 1 分钟没等到登录界面：停进程 → 重跑启动流程（与热更新异常同一条兜底）。
+        // max_hit 由用户要求取消：更新下载不定时长，允许一直重启到登录界面出来为止。
+        // ⚠️ 这意味着「更新永远下不完」时会持续 停进程 → 重开 → 等 60s 循环，
+        //    需要外部停止任务才能退出，排查卡死时先看这一层。
+        "action": {
+            "type": "StopApp",
+            "param": {
+                "package": "com.Sextante.Micross"
+            }
+        },
+        "post_delay": 3000,
+        "next": [
+            "LaunchGame_Start"
+        ]
+    },
     "LaunchGame_Launch": {
         // 用游戏包名启动。timeout 是启动后等待出现主界面/登录界面的窗口。
         // 冷启动（异常重启路径）→ 登录 → 主页全链实测约 46s，慢网络下会超过 60s；
@@ -68,6 +244,7 @@
         "timeout": 120000,
         "next": [
             "LaunchGame_AtMainHub",
+            "[JumpBack]LaunchGame_LoginUpdatePopup",
             "[JumpBack]LaunchGame_Login"
         ],
         // 超时异常流程：启动后长时间既不是主界面也不是登录界面，多半是热更新异常弹窗。
