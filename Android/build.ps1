@@ -14,7 +14,7 @@
       6. gradlew :app:assembleRelease
 
 .PARAMETER Version
-    写进 APK 的 versionName，默认 0.1.5。
+    写进 APK 的 versionName，默认 0.1.6。
 
 .PARAMETER MaaFwAppDir
     MaaFwApp 的 checkout 目录，默认 ./.build/MaaFwApp。
@@ -25,11 +25,11 @@
 .EXAMPLE
     $env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
     $env:ANDROID_HOME='D:\Android\Sdk'
-    .\Android\build.ps1 -Version 0.1.5
+    .\Android\build.ps1 -Version 0.1.6
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.5',
+    [string]$Version = '0.1.6',
     [string]$MaaFwAppDir = (Join-Path $PSScriptRoot '.build/MaaFwApp'),
     [string]$MaaFrameworkTag = 'v5.13.0',
     # 进包的 ABI：默认双架构通用包（一个 APK 内同时带 arm64-v8a 与 x86_64 的 .so 与 agent）
