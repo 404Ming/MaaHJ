@@ -353,8 +353,11 @@
             }
         },
         "timeout": 3000000,
-        // 机神降临是两段挑战里的**后手**（自律机械优先）：本段结束后直接收尾回主页。
-        "next": ["MachineGodDescent_BackHome"]
+        // 机神降临是两段挑战里的**后手**（自律机械优先）：本段结束后先领「任务报酬」，再收尾回主页。
+        // 三段都跑完时页面都停在黄金之国页（自律机械段尾会自己退回来、机神段结算后也退回来），
+        // 所以这里统一接「开任务面板」。若某段被开关跳过或页面没回来，认不到「任务」就直接回主页，
+        // 不会 bad next。
+        "next": ["MachineGodDescent_OpenMissionPanel", "MachineGodDescent_BackHome"]
     },
     "MachineGodDescent_ElementMachine": {
         // 挑战「元素自律机械」（用户第四段需求）：进入挑战页 → 按设置次数重复
@@ -375,6 +378,146 @@
         "timeout": 600000,
         // 自律机械优先：本段跑完先把页面退回机神降临页（入口在段尾动作里），再交给机神降临挑战段。
         "next": ["MachineGodDescent_GodChallenge"]
+    },
+    "MachineGodDescent_OpenMissionPanel": {
+        // 第五段（用户新增需求）：三段都做完（没勾选的段由各自开关在 Python 里短路跳过）后，
+        // 页面停在黄金之国页，点右上角「任务」打开「任务报酬」面板。
+        // 实测 2026-10-21：「任务」OCR box (636,212,50,30)，点**文字中心** (661,227) 即可打开面板。
+        // ROI 只框右上角这一块，主页的「每日任务」等文字不在框内，不会误触。
+        // max_hit 1：一次任务只开一次面板，异常链回到本段时不会反复开。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    600,
+                    185,
+                    120,
+                    80
+                ],
+                "expected": ["任务"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        // 面板有约 1s 的弹出动画，等它稳定再进监督节点，否则第一轮 OCR 可能拍在半透明遮罩上
+        "post_delay": 1500,
+        "timeout": 5000,
+        "next": ["MachineGodDescent_MissionClaimSupervisor"]
+    },
+    "MachineGodDescent_MissionClaimSupervisor": {
+        // 任务报酬面板内的领奖监督节点。用户说明：可领取项**会置顶**，可能有多个也可能一个都没有，
+        // 所以不需要翻页——「有就点、领完就关」即可。
+        // 候选顺序：领奖 → 关「恭喜获得」浮层 → 关面板：
+        //   · 每点一次「领取」都会叠一层「恭喜获得」全屏浮层（实测），浮层盖住「领取」
+        //     ⇒ 领奖候选失败、浮层候选命中；
+        //   · 面板里一个可领的都没有 ⇒ 前两个候选都失败 ⇒ 直接关面板走人。
+        // timeout 8000：3 个 OCR 候选要逐张截图识别，留足预算（照 Start 的 reco_timeout 教训）。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 8000,
+        "next": [
+            "MachineGodDescent_MissionClaimReward",
+            "MachineGodDescent_MissionClaimObtainClose",
+            "MachineGodDescent_CloseMissionPanel"
+        ]
+    },
+    "MachineGodDescent_MissionClaimReward": {
+        // 「领取」按钮列：实测 box (557,380,59,36)，四行按钮 y≈380/597/817/1037。
+        // ROI 只取右侧按钮列（x 540~645），行标题里的文字不参与匹配。
+        // 点的是识别出来的按钮中心（target=true），不写死坐标：领掉一行后列表会整体上移，
+        // 下一个可领项接着置顶，坐标必须跟着识别结果走。
+        // max_hit 12：可领取项数量上限保险丝，防止任何异常情况下无限领。
+        "max_hit": 12,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    540,
+                    230,
+                    105,
+                    920
+                ],
+                "expected": ["领取"]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        // 奖励浮层约 1s 后才完全展开，给足时间再回监督节点
+        "post_delay": 1000,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_MissionClaimSupervisor"]
+    },
+    "MachineGodDescent_MissionClaimObtainClose": {
+        // 领奖后的「恭喜获得 OBTAIN TREASURE」全屏浮层，底部「点击空白区域关闭」（实测 box (275,946,169,23)）。
+        // ⚠️ 与入口段的 MachineGodDescent_CloseObtainTreasure 是**同一套识别、不同 next**：
+        //    那个节点 next 指回入口监督节点 Start（会跳出领奖循环、重新走导航），所以这里必须单开一个。
+        // ⚠️ 固定点 (90,880,60,40) 取浮层左上空白：浮层盖住整个面板，点这里不会误触道具图标
+        //    （点图标会再套一层「物品详情」）。
+        // max_hit 12：与领取次数对齐，每领一次最多关一层。
+        "max_hit": 12,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    925,
+                    240,
+                    70
+                ],
+                "expected": ["点击空白区域关闭"]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    90,
+                    880,
+                    60,
+                    40
+                ]
+            }
+        },
+        "post_delay": 500,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_MissionClaimSupervisor"]
+    },
+    "MachineGodDescent_CloseMissionPanel": {
+        // 关面板：认「任务报酬」标题（实测 box (21,102,335,96)，大字）确认面板还在，
+        // 点左下角返回箭头 (66,1212)。实测关闭后落回黄金之国页（不是主页），
+        // 所以 next 直接交给既有的回主页链。
+        // max_hit 1：关一次就够；关不掉也有 BackHome 兜底。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    85,
+                    390,
+                    125
+                ],
+                "expected": ["任务报酬"]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    45,
+                    1185,
+                    45,
+                    55
+                ]
+            }
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": ["MachineGodDescent_BackHome"]
     },
     "MachineGodDescent_BackHome": {
         // 收尾：返回主页（机神降临页 → 活动一览 → 菜单页 → 主页，退三级）。
