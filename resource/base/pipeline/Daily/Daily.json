@@ -268,8 +268,15 @@
     },
     "Daily_Done": {
         // 完成态：奖杯已达标并领到里程碑奖励，游戏停在主页，可交给后续任务。
+        // ⚠️ 收尾必须显式 StopTask，不能留空 next：本链是从 Daily_Start 的 [JumpBack]Daily_OpenPage
+        //    走下来的，空 next 只会把控制权退回 Daily_Start 的候选列表重新判定；此时人已经在主页，
+        //    「每日任务」入口再次命中 ⇒ 又拉起 Daily_Main → Daily_TrophyGate → Daily_TrophyEnough。
+        //    第二轮里里程碑已领（模板不命中）、Daily_BackToHub 的 max_hit=1 也已用尽，
+        //    于是 Node.NextList.Failed ⇒ 整条日常任务判 FAILED（流程其实早已完成）。
+        //    实测 2026-10-28 05:27:21：两个副本都打完、里程碑也领到手，仍报「任务失败：日常任务」。
+        //    与 Weekly_Finish / MachineGodDescent_StopTask 的收尾写法保持一致。
         "action": {
-            "type": "DoNothing"
+            "type": "StopTask"
         }
     },
     "Daily_PickTask": {

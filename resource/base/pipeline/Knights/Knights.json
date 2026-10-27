@@ -371,6 +371,35 @@
             "Knights_TreasureFlow"
         ]
     },
+    "Knights_Treasure_TimeUp": {
+        // 「公会挖宝开启时间 00:00:00」= 本轮挖宝没开 / 已经结束（用户需求：时间为 0 就跳过整段）。
+        // 实测截图 MuMu-20261026-030234-599.png：整行 OCR 文本 `公会挖宝开启时间00:00:00`，
+        // box (480,262,217,19)，就在大厅右上「公会挖宝」面板 (567,208,135,42) 正下方。
+        // ROI 只框这一行：上界 250 避开面板标题，下界 295 避开大厅其它文字。
+        // 正则兼容 OCR 抖动：`00:00:00` / `0:0:0` / 全角冒号 / 中间被塞空格。
+        // 命中后交给 Knights_Treasure_GiveUp → HomeThenEnd（回主页收尾，不重启游戏）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    450,
+                    250,
+                    250,
+                    45
+                ],
+                "expected": [
+                    "开启时间\\s*0?0[：:]0?0[：:]0?0"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Knights_Treasure_GiveUp"
+        ]
+    },
     "Knights_TreasureFlow": {
         // 公会挖宝状态机（监督节点）。候选顺序 =「界面状态越靠后越优先」：
         //   遮屏面板 → 挖宝页「挑战」→ 编队「开始战斗」→ 洞穴口「挖宝」→ 大厅「公会挖宝」→ 主页「骑士团」→ 退一级
@@ -387,6 +416,7 @@
         "timeout": 30000,
         "next": [
             "[JumpBack]Exception_Start",
+            "Knights_Treasure_TimeUp",
             "Knights_Treasure_ClosePanel",
             "Knights_Treasure_Challenge",
             "Knights_Treasure_Start",

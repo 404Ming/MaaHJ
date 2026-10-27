@@ -1,12 +1,50 @@
 {
-    // 「自动挂机」任务：主页右下「战斗列表」→「自动挂机」→ 按任务设置勾选副本难度 →「确定」。
-    // 全部交互都在 Python（AutoIdleRun）里，实机 720x1280 逐跳印证：
-    //   主页「战斗列表」→ 战斗列表页「自动挂机」→「选择要挂机的副本」弹窗
-    //   →「重置」清空历史勾选 → 按系列展开、点开副本卡片读标题、勾难度 →「确定」
-    //   → 外层「确定」→ 战斗画面出现「自动挂机中」= 启动成功，否则重走一遍（最多 3 次）。
-    // ⚠️ 会真实开始挂机（连续自动战斗、消耗 BP）。一个难度都没勾选时整段跳过。
-    // timeout：挂机是长流程（含多次战斗/加载），给足 1 小时后由客户端停止兜底。
+    // 「自动挂机」任务，两种「挑战方式」共用同一份（副本 × 难度）勾选：
+    //   ① 自动挂机（默认）：主页右下「战斗列表」→「自动挂机」→ 按设置勾选副本难度 →「确定」启动离线挂机。
+    //      全部交互在 Python（AutoIdleRun）里，实机 720x1280 逐跳印证：
+    //        主页「战斗列表」→ 战斗列表页「自动挂机」→「选择要挂机的副本」弹窗
+    //        →「重置」清空历史勾选 → 按系列展开、点开副本卡片读标题、勾难度 →「确定」
+    //        → 外层「确定」→ 战斗画面出现「自动挂机中」= 启动成功，否则重走一遍（最多 3 次）。
+    //      ⚠️ 会真实开始挂机（连续自动战斗、消耗 BP）。一个难度都没勾选时整段跳过。
+    //   ② 主动战斗：战斗列表里按勾选设置「支援筛选」→ 刷新 → 按血量优先级挑一个支援战斗打进结算
+    //      （Python AutoIdleBattleRun，实机 2026-10-25 逐跳印证）。
+    //
+    // 分流靠「挑战方式」选项覆写下面两个入口节点的 enabled：MaaFramework 的 next 会**跳过
+    // enabled=false 的节点**（同一套用法见 GameplayChallenge_ResultNextStage），所以
+    // 默认「IdleRun 开 / BattleStart 关」，选中「主动战斗」时两者互换即可，不需要额外分支节点。
     "AutoIdle_Start": {
+        // 分流入口：只做 DoNothing，真正的活由下面两个入口节点之一执行完并直接进 AutoIdle_Done。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 5000,
+        "next": [
+            "AutoIdle_BattleStart",
+            "AutoIdle_IdleRun"
+        ]
+    },
+    "AutoIdle_BattleStart": {
+        // 「主动战斗」入口。times 由 interface.json「自动挂机-战斗次数」覆写（1-9999，默认 1）。
+        // ⚠️ 会真实消耗 BP（每场按副本难度扣 2~5 点），并且是在别人的支援请求里参战。
+        // 没勾选任何（副本 × 难度）时整段跳过，一个按钮都不点。
+        "enabled": false,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "AutoIdleBattleRun",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "AutoIdle_Done"
+        ]
+    },
+    "AutoIdle_IdleRun": {
+        // 「自动挂机」入口（原有流程）。timeout：挂机是长流程（含多次战斗/加载），
+        // 给足 1 小时后由客户端停止兜底。
         "action": {
             "type": "Custom",
             "param": {
@@ -18,6 +56,22 @@
         "next": [
             "AutoIdle_Done"
         ]
+    },
+    "AutoIdle_Config_HpPriority": {
+        // 「自动挂机-副本优先级」的数据载体（纯数据，不被任何 next 引用、永不执行）：
+        // select 选项按 PI 规范覆写 recognition.param.expected，AutoIdleBattleRun 读它决定
+        // 战斗列表里挑「剩余血量多」还是「剩余血量少」的那一场（"少" = 优先进血量少，其它一律按血量多）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "多"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
     },
     "AutoIdle_Done": {
         // 终态：启动自动挂机后立刻收尾（挂机本身由游戏自己跑，不需要本任务继续陪着）。
@@ -412,14 +466,14 @@
         }
     },
     "AutoIdle_S3_05_Hard": {
-        // 太阿 · 困难
+        // 奥蕾莉亚 · 困难
         "enabled": false,
         "action": {
             "type": "DoNothing"
         }
     },
     "AutoIdle_S3_06_Hard": {
-        // 戈舆 · 困难
+        // 倪克丝 · 困难
         "enabled": false,
         "action": {
             "type": "DoNothing"

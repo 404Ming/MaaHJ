@@ -692,6 +692,195 @@
             "type": "DoNothing"
         }
     },
+    "EnergyRefill_Dialog": {
+        // 「补充精力」弹窗（BP 不足时出现，用户需求：默认用第一个精力补给，与补充体力同逻辑）。
+        // 实测 2026-10-28 720x1280（当前模拟器画面 OCR）：
+        //   标题「补充精力」(287,150,143,47)；
+        //   「钻石购买精力」(202,272) +「前往购买」(491,334)、「通过炼金获取」(202,426) +「前往炼金」(491,492)；
+        //   标准精力补给 (202,610) +「恢复10点精力」(206,680) +「使用」(522,674,57,36)；
+        //   小型精力补给 (202,774) +「恢复1点精力」(207,841) +「使用」(520,834,61,39)。
+        // 与「补充体力」弹窗同族但**只有 2 档**（没有豪华），档位 y 也整体偏移 ≈ +14，
+        // 所以不能直接套 StaminaRefill 的三档固定 ROI（会把"标准"当"豪华"点）。
+        // 这里独立成 4 个节点：认标题 → 点最上面那个「使用」→ 详情「使用」→ 关弹窗。
+        "rate_limit": 200,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    200,
+                    110,
+                    340,
+                    120
+                ],
+                "expected": [
+                    "补充精力|恢复精力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 1500,
+        "next": [
+            "EnergyRefill_UseFirst"
+        ]
+    },
+    "EnergyRefill_UseFirst": {
+        // 列表里**第一个**精力补给的「使用」。ROI 一次覆盖两档（y≈674 / 834）；
+        // MaaFramework 的 OCR 结果按从上到下排序，取首个匹配即"最上面那一档"，也就是第一个补给。
+        // 「使田」是同一按钮的常见误读（体力那边实测 0.845），用 replace 归一化。
+        "max_hit": 1,
+        "rate_limit": 200,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    480,
+                    640,
+                    160,
+                    240
+                ],
+                "expected": [
+                    "使用|使田"
+                ],
+                "replace": [
+                    [
+                        "使田",
+                        "使用"
+                    ]
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 500,
+        "timeout": 3000,
+        "next": [
+            "EnergyRefill_DetailUse"
+        ]
+    },
+    "EnergyRefill_DetailUse": {
+        // 物品详情弹窗右下「使用」。必须用 And 同时要求「物品详情」在场：
+        // 详情弹窗打开后，背后精力弹窗那一列「使用」仍然能被 OCR 读到，
+        // 不加门控会点到背后那一行（体力那边已踩过同一个坑）。
+        "max_hit": 2,
+        "rate_limit": 200,
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    420,
+                                    770,
+                                    220,
+                                    120
+                                ],
+                                "expected": [
+                                    "使用|使田"
+                                ],
+                                "replace": [
+                                    [
+                                        "使田",
+                                        "使用"
+                                    ]
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        // 点完详情「使用」的实测落点（2026-10-28 真机）：
+        //   用掉补给 → 先弹「恭喜获得」全屏遮屏 → 关掉它才露出底下的「物品详情」
+        //   → 再点详情左下「关闭」→ 才回到「补充精力」弹窗 → 最后左下角返回关弹窗。
+        // 少任何一步都会卡在奖励层/详情层上，调用方什么按钮都点不到。
+        "next": [
+            "[JumpBack]Exception_RewardClose",
+            "EnergyRefill_DetailClose"
+        ]
+    },
+    "EnergyRefill_DetailClose": {
+        // 关掉「物品详情」：左下「关闭」（实测体力详情按钮 x 111-281 / y 801-843，精力详情同款组件）。
+        // And 门控「物品详情」在场，否则会点到背后精力弹窗里的「使用」。
+        "max_hit": 3,
+        "rate_limit": 200,
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "StaminaRefill_ItemDetail",
+                    {
+                        "recognition": {
+                            "type": "OCR",
+                            "param": {
+                                "roi": [
+                                    135,
+                                    785,
+                                    130,
+                                    70
+                                ],
+                                "expected": [
+                                    "关闭"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "box_index": 1
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 500,
+        "timeout": 2000,
+        "next": [
+            "EnergyRefill_Back"
+        ]
+    },
+    "EnergyRefill_Back": {
+        // 补完关掉「补充精力」弹窗：标题还在才点（弹窗已关就零开销），
+        // 复用 StaminaRefill_BackClick 的模板匹配（左下角返回图标，与体力弹窗同一点位），不写死坐标。
+        // 关完顺手把「恭喜获得」遮屏点掉（实跑 2026-10-28：补精力后必弹这个全屏奖励层，
+        // 只关弹窗不关它，画面会一直停在那，调用方什么都点不到）。
+        "max_hit": 2,
+        "rate_limit": 200,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    200,
+                    110,
+                    340,
+                    120
+                ],
+                "expected": [
+                    "补充精力|恢复精力"
+                ],
+                "threshold": 0.2
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000,
+        "next": [
+            "StaminaRefill_BackClick"
+        ]
+    },
     "StaminaRefill_Back": {
         // 关闭「补充体力」弹窗：标题仍在位（门控，弹窗已关时不误点返回）→ 交给 StaminaRefill_BackClick
         // 图片匹配左下角返回图标按钮并点其中心。

@@ -21,6 +21,7 @@
             "type": "DoNothing"
         },
         "next": [
+            "[JumpBack]EnergyRefill_Dialog",
             "[JumpBack]StaminaRefill_Dialog",
             "RefillStaminaOnly_Start"
         ]

@@ -6,10 +6,16 @@
         // 它执行完调用方的后续候选就不再执行了，所以入口必须是「有异常才命中」的条件节点。
         // 命中才执行：由 next 里的探针逐个处理，处理完整条链结束，交回调用方。
         // 只按「正面识别到异常特征」触发，绝不做「无条件点某个位置」的兜底，避免在正常页面乱点。
+        //
+        // ⚠️ 「暂离已满」排**第一位**（用户要求：优先级最高）：
+        //    它的优先级必须高于体力补充 / 奖励遮屏 / 好友申请 / 活动公告 / 断线——
+        //    挂机暂离位满了之后本次挑战根本没开始，先处理别的弹窗只会把待确认的报酬越积越多。
+        //    Or 的 any_of 按顺序匹配，next 里也把它放在最前，两处顺序必须一致。
         "recognition": {
             "type": "Or",
             "param": {
                 "any_of": [
+                    "Exception_AwayFull",
                     "Exception_Stamina",
                     "Exception_RewardClose",
                     "Exception_FriendRequest",
@@ -24,6 +30,7 @@
         },
         "timeout": 2000,
         "next": [
+            "Exception_AwayFull",
             "Exception_Stamina",
             "Exception_RewardClose",
             "Exception_FriendRequest",
@@ -484,6 +491,194 @@
         "post_delay": 500,
         "timeout": 3000
     },
+    "Exception_AwayFull": {
+        // 「暂离已满」弹窗（用户新增需求）：点「创建房间」/「开始挑战」之后，如果自动挂机的
+        // 暂离位已满，本次挑战**不会真正开始**，而是弹这个框。
+        // 实测（流程截图/公共功能/异常处理/暂离已满/1暂离已满.png）：
+        //   标题「暂离已满」(289,378,141,43)；
+        //   正文「暂离副本数量已达上限，请先完成正在战斗中的副本。」；
+        //   按钮「取消」(166,822,68,42)、「前往战斗列表」(426,826,176,38)。
+        // 只认标题：正文会换行、OCR 常拆成两段；标题是这层弹窗独有的。
+        // 处理链（用户给的 5 张截图）：前往战斗列表 → 点「待确认」→ 逐条「待领取报酬」
+        //   → 结算页「撤退 / 确认」→ 交回主页链收尾。
+        // 调用方式：`[JumpBack]Exception_AwayFull`（条件节点，没弹窗时不命中，不打断原流程）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    340,
+                    240,
+                    120
+                ],
+                "expected": [
+                    "暂离已满"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        // timeout 只给 600ms：这个节点被挂在「点创建房间 / 开始挑战」之后当 [JumpBack] 候选，
+        // 每点一次都会先过一次识别。给 3000 会让每次点击都白等 3 秒；弹窗在点击后
+        // post_delay(500ms) 内就已经画出来了，600ms 足够。
+        "timeout": 600,
+        "next": [
+            "Exception_AwayFullGotoList"
+        ]
+    },
+    "Exception_AwayFullGotoList": {
+        // 弹窗右下「前往战斗列表」（实测 box (426,826,176,38)）。左侧「取消」在 x 166~234，框外。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    400,
+                    780,
+                    230,
+                    110
+                ],
+                "expected": [
+                    "前往战斗列表"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "Exception_AwayFullPending"
+        ]
+    },
+    "Exception_AwayFullPending": {
+        // 战斗列表页那条战斗的「待确认」（实测 box (561,1129,108,43)）。
+        // ROI 只框右下这一条：待确认**页**的标题也叫「待确认」，但它在 (304,173)，不在框内。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    500,
+                    1080,
+                    200,
+                    140
+                ],
+                "expected": [
+                    "待确认"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "Exception_AwayFullClaim"
+        ]
+    },
+    "Exception_AwayFullClaim": {
+        // 「待确认」页逐条领「待领取报酬」（实测 4 条：y≈422/584/742/908，x≈517~640）。
+        // 每条点完会进结算页（作战失败 / 战斗胜利），由 Exception_AwayFullResult 收尾后再回来领下一条。
+        // max_hit 6：一次最多结算 6 条，用尽后落到 Exception_AwayFullBack 回主页，不会无限点。
+        "max_hit": 8,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                // ROI 下界从 940 放到 1010：实机 2026-10-28 待确认页滚过之后第 4 条
+                // 「待领取报酬」落在 y≈942（box (520,942,121,32)），旧下界刚好把它切掉 → 漏领。
+                "roi": [
+                    440,
+                    370,
+                    270,
+                    640
+                ],
+                "expected": [
+                    "待领取报酬"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2000,
+        "timeout": 3000,
+        // ⚠️ 这里**不能**直接挂无条件的 Exception_AwayFullBack：
+        //    点完「待领取报酬」后结算页要加载（实测 2~3s，慢的时候更久），
+        //    一次 3s 识别不到「撤退/确认」就会直接放弃剩下的报酬回主页。
+        //    改成「先认结算页，认不到就进 Settle 等 2s 再重判待领取报酬」。
+        "next": [
+            "Exception_AwayFullResult",
+            "Exception_AwayFullSettle"
+        ]
+    },
+    "Exception_AwayFullResult": {
+        // 结算页收尾：失败页是「撤退」(337,1202,61,31)、胜利页是「确认」(332,1192,57,32)，
+        // 「点击空白处继续」(273,1196,146,26) 是多屏结算的翻页键，三者都在底部同一条带上
+        // （ROI 250,1150,300,110 同时兜住）。
+        // timeout 6000：结算页有加载动画，3s 经常还没画出按钮就被判"没有"。
+        "max_hit": 8,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    250,
+                    1150,
+                    300,
+                    110
+                ],
+                "expected": [
+                    "撤退|确认|点击空白处继续"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        // 胜利结算有入场动画（「战斗胜利」大字 + 贡献奖励飞入），1.5s 常常点完还没关闭，
+        // 留 2.5s 再交给 Settle 判定。
+        "post_delay": 2500,
+        "timeout": 6000,
+        "next": [
+            "Exception_AwayFullSettle"
+        ]
+    },
+    "Exception_AwayFullSettle": {
+        // 结算页点完之后的中转：等 2s 让画面回到「待确认」页，再判还有没有下一条报酬。
+        // 有 → 回 Claim 继续领；没有 → 交回主页链收尾。
+        // 为什么不让 Claim 直接当 next：Claim 点完立刻就判，画面还在结算页，必然认不到，
+        // 会误判成"已经领完"提前退出（2026-10-28 实机就是这个问题）。
+        "pre_delay": 2000,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        // 三个候选，按「当前画面最可能是什么」排序：
+        //   1) 还在结算页（上次确认没点掉 / 又多翻了一屏）→ 再点一次确认；
+        //   2) 已回到待确认页且还有报酬 → 领下一条；
+        //   3) 都没有 → 回主页。
+        // 没有第 1 条时，胜利页动画期间会误判成"已领完"直接退出（用户反馈的现场）。
+        "next": [
+            "Exception_AwayFullResult",
+            "Exception_AwayFullClaim",
+            "Exception_AwayFullBack"
+        ]
+    },
+    "Exception_AwayFullBack": {
+        // 待领取报酬已经领完（Settle 重判后仍认不到）→ 交回主页链收尾：
+        // 待确认页 / 战斗列表页都有返回图标，BackToMainHub 会逐级退回主页。
+        // 无条件节点，必须放在 Exception_AwayFullSettle 的 next 末位。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "BackToMainHub_Start"
+        ]
+    },
     "Exception_Unknown": {
         // 「卡死 / 未知画面」入口：不靠画面特征识别，而是由调用方用 timeout + on_error 触发——
         // 监督节点在 timeout 内既没匹配到任何正常候选（卡死 / 当前页认不出来），on_error 就落到这里。
@@ -501,6 +696,7 @@
         },
         "timeout": 3000,
         "next": [
+            "Exception_AwayFull",
             "Exception_FriendRequest",
             "Exception_CloseIcon",
             "Exception_BackOneLevel",

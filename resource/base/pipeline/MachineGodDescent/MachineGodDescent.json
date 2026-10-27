@@ -143,11 +143,15 @@
     },
     "MachineGodDescent_ClaimExploreReward": {
         // 自动探索**自然结束**后进入机神降临页会自动弹「自动获取收获」奖励框（实测截图），
-        // 必须先点「收获奖励」(305,738,107,38) 领奖，框关掉后「探索」才会重新可见。
+        // 必须先点「收获奖励」领奖，框关掉后「探索」才会重新可见。
         // ⚠️ 奖励框盖住整个页面且背景被压暗压糊：实测整页 OCR 只剩框内 5 行，「探索」认不到
         //    ⇒ PageDock 必然 miss，若不先领奖，入口段会落进 UnknownFallback 空转到耗尽。
         // 识别用「收获奖励」**整串**：手动停止的面板同名按钮在 (439,740)，ROI 横向只到 435，
         // 与它不相交（且那种面板只在 AutoExploreSetup 内部出现，不会在监督节点这一层出现）。
+        // ⚠️ 纵向 ROI 必须留够：实测 2026-10-28 06:01 这颗按钮落在 (305,773,107,36)，
+        //    中心 y=791，而旧 ROI 只到 y=785 ⇒ 中心落在框外被 OCRer 过滤掉，
+        //    识别 miss → PageDock 也被弹窗盖住 ⇒ 直接落进 UnknownFallback → 异常链重启。
+        //    现在向下放到 y=850（覆盖 738 与 773 两种实测位置，按钮最下沿 809 仍在框内）。
         // max_hit 1：领奖是一次性动作；没领掉也不会无限重试（落到 UnknownFallback 有界兜底）。
         // 领完 [JumpBack] 回监督节点重新判定 → 框已关、PageDock 命中 → 走正常流程。
         "max_hit": 1,
@@ -156,9 +160,9 @@
             "param": {
                 "roi": [
                     280,
-                    715,
+                    700,
                     155,
-                    70
+                    150
                 ],
                 "expected": ["收获奖励"]
             }
@@ -360,12 +364,18 @@
         "next": ["MachineGodDescent_OpenMissionPanel", "MachineGodDescent_BackHome"]
     },
     "MachineGodDescent_ElementMachine": {
-        // 挑战「元素自律机械」（用户第四段需求）：进入挑战页 → 按设置次数重复
-        //   挑战 → 助战选择 → 开始战斗 → （本活动**没有**「挑战下一关」，所以打完点「确认」）
-        //   → 回到自律机械挑战页；打满设置次数或**次数不足**就停，最后交给上层返回主页。
-        // times 来自任务设置「自律机械挑战次数」（interface.json 的 input 选项注入
-        //   custom_action_param.times，与既有「挑战次数」同一套接线）。
-        // ⚠️ 会真实消耗挑战次数；开关「挑战元素自律机械」关闭或节点读不到时整段跳过。
+        // 挑战「元素自律机械」（用户第四段需求）：
+        //   进入挑战页（普通态左上「元素自律机械」/ **大量出现**态「大量出现中」）
+        //   → 把页面推进到**任务设置选中的 BOSS**（大量出现时在 4 宫格里点它的卡；
+        //     普通轮换态如果当前不是它，就按用户要求整段跳过）
+        //   → 按设置次数重复：挑战 → 助战选择 → 开始战斗 →（本活动**没有**「挑战下一关」，打完点「确认」）
+        //   → 回到挑战页；打满设置次数或**次数不足**就停，最后交给上层返回主页。
+        // times  来自任务设置「自律机械挑战次数」（input 选项注入 custom_action_param.times）。
+        // target **不**走 custom_action_param，改由载体节点 MachineGodDescent_Config_ElementTarget
+        //   的 recognition.param.expected[0] 承载（与助战偏好六节点同一套 PI select 约定）。
+        //   原因（2026-10-23 实测）：custom_action_param 被 override_pipeline **整体替换**，
+        //   select 写 target 会把 input 写的 times 顶成 None；两者必须分开承载。
+        // ⚠️ 会真实消耗挑战次数；设置「不挑战」、target 为空或节点读不到时整段跳过。
         "action": {
             "type": "Custom",
             "param": {
@@ -551,8 +561,28 @@
             "type": "DoNothing"
         }
     },
+    "MachineGodDescent_Config_ElementTarget": {
+        // 任务设置「挑战元素自律机械」的**取值载体**（select 选项按 PI 规范写
+        // recognition.param.expected[0]：赫淮斯托斯 / 代达罗斯 / 安菲特里忒 / 盖亚，空串 = 不挑战）。
+        // ⚠️ 为什么不用 custom_action_param：那个对象已经被「自律机械挑战次数」用来写 times，
+        //    而实测 override_pipeline 对它是**整体替换**——select 写 target 会把 times 顶成 None
+        //    （2026-10-23 用分离的两次 override 复现，times=None）。分开承载后两者互不影响。
+        // 纯载体：不被任何 next 引用、永不执行，只把字符串带到运行时。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    ""
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
     "MachineGodDescent_Flag_ElementMachineChallenge": {
-        // 任务设置「挑战元素自律机械」的开关载体（同上，由 switch 选项覆写 enabled）。
+        // 任务设置「挑战元素自律机械」的开关载体（同上，由 select 选项覆写 enabled：
+        // 选「不挑战」= false，选任意 BOSS = true）。
         "enabled": true,
         "action": {
             "type": "DoNothing"
@@ -593,6 +623,7 @@
         "post_delay": 500,
         "timeout": 15000,
         "next": [
+            "[JumpBack]Exception_AwayFull",
             "MachineGodDescent_CreateRoom_AfterCreate"
         ]
     },

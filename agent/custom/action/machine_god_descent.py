@@ -351,9 +351,12 @@ def _run_battle_turns(context: Context, is_over, timeout: float) -> bool:
     return False
 
 
-def _run_battle(context: Context, *, post_roi, post_texts) -> bool:
+def _run_battle(context: Context, *, post_roi, post_texts, challenge_roi=_MGD_BOTTOM_ROI) -> bool:
     """打完一整场「挑战」：挑战 →（助战选择）→ 开始战斗 → 战斗 → 继续 → 确认 →
     （好友申请取消）→ 回到原页面；成功判据是 post_texts 中**任一**文案在 post_roi 出现。
+
+    challenge_roi：找「挑战」按钮的范围。默认是底部横带 `_MGD_BOTTOM_ROI`（y≥990）；
+    「大量出现」详情页的挑战按钮更高（实测 (321,980,77,45)），调用方要传 `_ELEMENT_CHALLENGE_ROI`。
 
     与「点探索后遇到挑战」和「元素自律机械」两条链同形，公用这一段：
       1. 底部「挑战」→ 点它；
@@ -366,7 +369,7 @@ def _run_battle(context: Context, *, post_roi, post_texts) -> bool:
 
     每步有界等待；任何一步认不到都返回 False，由上层按"无进展"处理。
     """
-    challenge = _find_in(context, _MGD_BOTTOM_ROI, _CHALLENGE_TEXT)
+    challenge = _find_in(context, challenge_roi, _CHALLENGE_TEXT)
     if challenge is None:
         return False
     _click_box(context, challenge)
@@ -619,13 +622,47 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
 # 其中「挑战 → 助战选择 → 编队开始战斗 → 战斗 → 战斗胜利继续 → 确认 →（好友申请取消）
 # → 回到本页」这一段与「点探索后遇到挑战」**同形**，统一复用 `_run_battle`。
 _ELEMENT_MACHINE_FLAG = "MachineGodDescent_Flag_ElementMachineChallenge"
-# 左上角入口（实测：「元素自律机械」(15,214,145,32)，其下是「次数：10」(43,280,93,28)）
+# 「挑战元素自律机械」选中的 BOSS 名载体节点（select 写 recognition.param.expected[0]）。
+# ⚠️ 不放在 custom_action_param 里：那个对象由「自律机械挑战次数」写 times，
+#    override_pipeline 是整体替换，两个选项写同一层会互相顶掉（2026-10-23 实测）。
+_ELEMENT_TARGET_NODE = "MachineGodDescent_Config_ElementTarget"
+# 左上角入口（实测两种形态）：
+#   普通态「元素自律机械」(14,212,147,36)；
+#   大量出现态变成「大量出现中」(27,216,123,32)，其下是「次数：16」(43,281,94,28)。
+# 两种文字都落在同一个 ROI 内，用 **contains** 匹配（"大量出现中" 不等于 "大量出现"）。
 _ELEMENT_ENTRY_ROI = (0, 190, 220, 70)
-_ELEMENT_ENTRY_TEXT = "元素自律机械"
+_ELEMENT_ENTRY_TEXTS = ("元素自律机械", "大量出现")
 # 挑战页的**剩余可挑战次数**读数：实测「挑战次数：8」box (291,1009,133,32)，
 # 在底部「挑战」按钮正上方；与机神降临页左上角那个「次数：N」不是同一处。
 _ELEMENT_REMAIN_ROI = (250, 980, 230, 70)
+# 大量出现**详情页**的读数在右上角（实测「挑战次数：16」(524,164,113,24)），与上面不是同一处；
+# 两处都读，读不到就返回 None（只用来判断"还能不能打"，不猜）。
+_ELEMENT_REMAIN_TOP_ROI = (460, 140, 240, 70)
 _ELEMENT_REMAIN_PATTERN = re.compile(r"挑战次数\s*[:：]\s*(\d+)")
+
+# ---- 「挑战元素自律机械」的 BOSS 选择（用户需求：下拉指定 BOSS，支持大量出现）----
+# 四个可挑战 BOSS。任务设置里选中的名字就是页面上的标题文字（不带「火 · 」前缀）。
+ELEMENT_BOSSES = ("赫淮斯托斯", "代达罗斯", "安菲特里忒", "盖亚")
+# 普通挑战详情页标题「元素自律机械挑战」(173,228,373,49)；大量出现页**没有**这个标题。
+# ROI 下界必须过 277（228+49）：只给到 270 会把标题下半行切掉，OCR 直接丢掉整行。
+_ELEMENT_DETAIL_TITLE_ROI = (150, 200, 430, 95)
+_ELEMENT_DETAIL_TITLE_TEXT = "元素自律机械挑战"
+# 详情页 BOSS 名：
+#   普通态「安菲特里忒」(300,304,173,42)；
+#   大量出现态「赫淮斯托斯」(256,316,187,42) /「代达罗斯」(256,313,154,47)。
+# ⚠️ 只允许在**详情页**用这个 ROI —— 大量出现的**选择页**里「代达罗斯」(467,340,141,46) 会落进来。
+_ELEMENT_BOSS_ROI = (200, 285, 340, 80)
+# 大量出现**详情页**的独有文字：实测「今日剩余挑战次数：∞」(76,590,205,28)。
+# 普通详情页这一带写的是「可能获得」(304,805)，没有「今日剩余挑战次数」。
+_ELEMENT_LARGE_PAGE_ROI = (40, 560, 400, 80)
+_ELEMENT_LARGE_PAGE_TEXT = "今日剩余挑战次数"
+# 大量出现「挑战选择」网格：4 个 BOSS 名 2x2 分布（实测）
+#   赫淮斯托斯 (152,196,178,42) / 代达罗斯 (467,340,141,46)
+#   安菲特里忒 (152,556,180,41) / 盖亚 (402,881,77,45)
+_ELEMENT_GRID_ROI = (100, 150, 540, 800)
+# 「挑战」按钮：普通态 (316,1065,86,51)、大量出现态 (321,980,77,45)。
+# 大量出现那个比 `_MGD_BOTTOM_ROI`(y≥990) 更靠上，所以本段调用 `_run_battle` 时要传更宽的 ROI。
+_ELEMENT_CHALLENGE_ROI = (250, 930, 240, 200)
 
 
 # 自律机械挑战页左下角返回（与公共返回节点 BackToMainHub_Back 实测同一枚图标 (52,1226,45,29)）。
@@ -650,8 +687,13 @@ def _back_to_mgd_page(context: Context, tries: int = 3) -> bool:
     if _read_element_remaining(context) is not None:
         logger.warning("机神降临：自律机械段结束后仍停在挑战页（还能读到「挑战次数」），机神降临挑战段可能认不到入口。")
         return False
-    if _find_in(context, _ELEMENT_ENTRY_ROI, _ELEMENT_ENTRY_TEXT) is None:
-        logger.warning("机神降临：已退出自律机械挑战页，但没看到「元素自律机械」入口，机神降临挑战段可能认不到入口。")
+    if not any(
+        _find_contains(context, _ELEMENT_ENTRY_ROI, text) is not None for text in _ELEMENT_ENTRY_TEXTS
+    ):
+        logger.warning(
+            "机神降临：已退出自律机械挑战页，但没看到「元素自律机械」/「大量出现中」入口，"
+            "机神降临挑战段可能认不到入口。"
+        )
         return False
     return True
 
@@ -662,29 +704,87 @@ def _read_element_remaining(context: Context) -> int | None:
     用户明确：任务设置里的「自律机械挑战次数」是**要打的次数**（times），
     这里的「挑战次数」是**剩余可挑战次数**——只用来判断"还能不能打"，绝不参与 times 语义。
     """
-    for text, _box in _ocr(context, _ELEMENT_REMAIN_ROI):
-        match = _ELEMENT_REMAIN_PATTERN.search(text.replace(" ", ""))
-        if match:
-            return int(match.group(1))
+    for roi in (_ELEMENT_REMAIN_ROI, _ELEMENT_REMAIN_TOP_ROI):
+        for text, _box in _ocr(context, roi):
+            match = _ELEMENT_REMAIN_PATTERN.search(text.replace(" ", ""))
+            if match:
+                return int(match.group(1))
     return None
+
+
+def _element_boss_on_page(context: Context, target: str) -> bool:
+    """本轮详情页上展示的 BOSS 是不是 target（只在详情页调用，别在选择页用）。"""
+    return _find_in(context, _ELEMENT_BOSS_ROI, target) is not None
+
+
+def _element_sync_target(context: Context, target: str) -> str:
+    """把页面推进到「目标 BOSS 的详情页」。返回：
+
+    - ``ready``  已在目标 BOSS 的详情页 → 可以直接点「挑战」；
+    - ``picked`` 在「大量出现」选择页里点中了目标 BOSS → 需要等一帧再判定；
+    - ``skip``   当前页面不是目标 BOSS（普通轮换是别的 BOSS）→ 本段应跳过（用户要求）。
+
+    页面形态（实测 2026-10-23，截图目录 流程截图/机神降临/挑战元素自律机械）：
+      · 普通挑战详情页：标题「元素自律机械挑战」+ 单个 BOSS 名（y≈304）；
+      · 大量出现选择页：没有标题，4 个 BOSS 名 2x2 摆开（y≈196/340/556/881）；
+      · 大量出现详情页：没有标题，有「今日剩余挑战次数」+ BOSS 名（y≈316）。
+    ⚠️ 必须先按「标题 / 今日剩余挑战次数」区分页面形态再读 BOSS 名：
+      选择页里「代达罗斯」(467,340) 会落进详情页的 BOSS ROI，不加区分会误判成"已在它的详情页"。
+    """
+    if _find_in(context, _ELEMENT_DETAIL_TITLE_ROI, _ELEMENT_DETAIL_TITLE_TEXT) is not None:
+        return "ready" if _element_boss_on_page(context, target) else "skip"
+    if _find_contains(context, _ELEMENT_LARGE_PAGE_ROI, _ELEMENT_LARGE_PAGE_TEXT) is not None:
+        return "ready" if _element_boss_on_page(context, target) else "skip"
+    box = _find_in(context, _ELEMENT_GRID_ROI, target)
+    if box is not None:
+        _click_box(context, box)
+        return "picked"
+    return "skip"
+
+
+def _read_element_target(context: Context) -> str:
+    """读任务设置「挑战元素自律机械」选中的 BOSS 名；读不到/为空返回 ""（= 不挑战）。
+
+    取值来自载体节点 `MachineGodDescent_Config_ElementTarget` 的
+    `recognition.param.expected[0]`（interface.json 的 select 按 PI 规范写这个字段），
+    与 `_read_support_prefs` 读助战偏好是同一套约定。
+    """
+    try:
+        node = context.get_node_data(_ELEMENT_TARGET_NODE) or {}
+    except Exception as error:  # noqa: BLE001  读不到按「不挑战」处理，绝不擅自消费次数
+        logger.warning("机神降临：读取元素自律机械目标节点失败：{}", error)
+        return ""
+    expected = ((node.get("recognition") or {}).get("param") or {}).get("expected") or []
+    value = expected[0] if expected else ""
+    return value.strip() if isinstance(value, str) else ""
 
 
 @AgentServer.custom_action("MachineGodDescentElementMachineChallenge")
 class MachineGodDescentElementMachineChallenge(CustomAction):
-    """按设置次数挑战「元素自律机械」。
+    """按任务设置指定的 BOSS 与次数挑战「元素自律机械」。
 
     流程（用户给出 + 实测逐跳印证）：
-      1. 机神降临界面左上角点「元素自律机械」进入挑战页（已在挑战页时点不到、直接跳过）；
+      1. 机神降临界面左上角点入口进入挑战页：
+         · 普通态写「元素自律机械」；
+         · **大量出现**态变成「大量出现中」（2026-10-23 新增流程），点进去是 4 个 BOSS 的选择页；
+         已在挑战页时两个入口都认不到，直接跳过这一步。
       2. 循环 times 次：
-         · 先读挑战页底部「挑战次数：N」（**剩余可挑战次数**）——N=0 就提前结束；
-         · 打一场：挑战 → 助战选择(第一条) → 编队「开始战斗」→ 战斗 → 「点击空白处继续」
+         · 先读「挑战次数：N」（**剩余可挑战次数**）——N=0 就提前结束；
+         · 把页面推进到 **任务设置选中的 BOSS**（`_element_sync_target`）：
+           - 普通详情页 / 大量出现详情页上就是它 → 直接挑战；
+           - 大量出现选择页 → 点它那张卡，等一帧进详情页再挑战；
+           - 当前轮换的是别的 BOSS 且没有「大量出现」→ **整段跳过**（用户要求，不挑战）；
+         · 打一场：挑战 → 助战选择 → 编队「开始战斗」→ 战斗 → 「点击空白处继续」
            →「确认」→（好友申请「取消」）→ 回到挑战页（统一走 `_run_battle`）；
-      3. 打满 times 或剩余次数不足即结束；**结束时把页面退回机神降临页**，交给下一段
-         `MachineGodDescent_GodChallenge`（自律机械优先于机神降临）。
+      3. 打满 times / 剩余次数不足 / BOSS 不在场 即结束；**结束时把页面退回机神降临页**，
+         交给下一段 `MachineGodDescent_GodChallenge`（自律机械优先于机神降临）。
 
     ⚠️ times 来自任务设置「自律机械挑战次数」（1-99999），是**要打的次数**；
        挑战页读到的「挑战次数：N」是**剩余可挑战次数**，只用来判断还能不能打。
-    ⚠️ 会真实消耗挑战次数；任务设置「挑战元素自律机械」关闭或节点读不到时整段跳过（不消费）。
+    ⚠️ target 来自任务设置「挑战元素自律机械」（select），**不在 custom_action_param 里**：
+       取值来自载体节点 `MachineGodDescent_Config_ElementTarget` 的 `recognition.param.expected[0]`，
+       取值 `赫淮斯托斯 / 代达罗斯 / 安菲特里忒 / 盖亚`，空串等于「不挑战」。
+    ⚠️ 会真实消耗挑战次数；设置「不挑战」、target 为空或节点读不到时整段跳过（不消费）。
 
     Examples:
         `custom_action_param`::
@@ -708,18 +808,29 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
         if times is None:
             logger.error("机神降临：挑战次数非法（需 1-99999），跳过元素自律机械段。")
             return CustomAction.RunResult(success=True)
+        target = _read_element_target(context)
+        if target not in ELEMENT_BOSSES:
+            logger.info(
+                "机神降临：任务设置「挑战元素自律机械」没有指定有效 BOSS（target={!r}），跳过本段。",
+                target,
+            )
+            return CustomAction.RunResult(success=True)
 
-        # 1. 进入挑战页（点左上角入口；已在挑战页时这里认不到，不影响后续）
-        entry = _find_in(context, _ELEMENT_ENTRY_ROI, _ELEMENT_ENTRY_TEXT)
-        if entry is not None:
-            logger.info("机神降临：点左上角「元素自律机械」进入挑战页。")
-            _click_box(context, entry)
-            time.sleep(_CLICK_SETTLE)
-        else:
-            logger.info("机神降临：没看到左上角「元素自律机械」入口（可能已在挑战页）。")
+        # 1. 进入挑战页（普通「元素自律机械」/ 大量出现「大量出现中」；已在挑战页时两个都认不到）
+        entry = None
+        for text in _ELEMENT_ENTRY_TEXTS:
+            entry = _find_contains(context, _ELEMENT_ENTRY_ROI, text)
+            if entry is not None:
+                logger.info("机神降临：点左上角「{}」进入挑战页。", text)
+                _click_box(context, entry)
+                time.sleep(_CLICK_SETTLE)
+                break
+        if entry is None:
+            logger.info("机神降临：没看到左上角入口（可能已在挑战页）。")
 
-        # 2. 按设置次数循环，剩余可挑战次数不足就提前结束
+        # 2. 按设置次数循环；每轮先把页面推进到目标 BOSS，推不到就整段跳过
         done = 0
+        skipped = False
         for index in range(times):
             if is_stopping(context):
                 logger.info("机神降临：收到停止请求，元素自律机械段中断（已完成 {}/{} 次）。", done, times)
@@ -728,10 +839,33 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
             if remaining is not None and remaining <= 0:
                 logger.info("机神降临：元素自律机械剩余可挑战次数已用尽（挑战次数：{}），提前结束。", remaining)
                 break
+
+            state = _element_sync_target(context, target)
+            if state == "picked":
+                # 在「大量出现」选择页点了目标卡：等一帧再判定是否进了它的详情页
+                time.sleep(_CLICK_SETTLE)
+                state = _element_sync_target(context, target)
+                if state == "picked":
+                    logger.warning("机神降临：点了「{}」的卡，但没有进入它的详情页。", target)
+                    state = "skip"
+            if state == "skip":
+                logger.info(
+                    "机神降临：当前挑战页不是「{}」（既没有它，也没有「大量出现」可选），"
+                    "按任务设置跳过本段挑战。",
+                    target,
+                )
+                skipped = True
+                break
+
             # 战后落点是**元素自律机械挑战页**（不是活动页）：
             # 有次数时底部是「开始战斗」+「挑战次数：N」；次数用完则变成「挑战次数不足」。
+            # challenge_roi 传更宽的 `_ELEMENT_CHALLENGE_ROI`：大量出现详情页的「挑战」在 y≈980，
+            # 默认 `_MGD_BOTTOM_ROI`（y≥990）框不到。
             if not _run_battle(
-                context, post_roi=_MGD_BOTTOM_ROI, post_texts=_ELEMENT_PAGE_ANCHOR_TEXTS
+                context,
+                post_roi=_MGD_BOTTOM_ROI,
+                post_texts=_ELEMENT_PAGE_ANCHOR_TEXTS,
+                challenge_roi=_ELEMENT_CHALLENGE_ROI,
             ):
                 logger.warning(
                     "机神降临：第 {} 次挑战没能完成（认不到挑战页锚点「开始战斗」/「挑战次数」或战斗未收尾），"
@@ -740,9 +874,12 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
                 )
                 break
             done += 1
-            logger.info("机神降临：元素自律机械第 {}/{} 次挑战完成。", done, times)
+            logger.info("机神降临：元素自律机械「{}」第 {}/{} 次挑战完成。", target, done, times)
 
-        logger.info("机神降临：元素自律机械段结束，共完成 {}/{} 次。", done, times)
+        if skipped:
+            logger.info("机神降临：元素自律机械段结束（0 次，任务设置的目标 BOSS 不在场）。")
+        else:
+            logger.info("机神降临：元素自律机械段结束，共完成 {}/{} 次。", done, times)
         # 收回页面：下一段是机神降临挑战（自律机械优先），它要在机神降临页认「挑战」/「挑战机神」入口。
         # 停在自律机械挑战页会让它认不到入口直接放弃，所以这里必须退回机神降临页。
         _back_to_mgd_page(context)
@@ -871,6 +1008,33 @@ def _wait_room_start_after_confirm(context: Context, timeout: float):
     return None
 
 
+# ---- 「暂离已满」门控（用户需求：点「创建房间」/「开始挑战」之后先看有没有这个弹窗）----
+# 实测（流程截图/公共功能/异常处理/暂离已满/1暂离已满.png）：
+#   标题「暂离已满」(289,378,141,43)；按钮「前往战斗列表」(426,826,176,38)。
+# 命中说明**本次挑战没有真正开始**（自动挂机暂离位已满），必须先去战斗列表把待确认的报酬领掉。
+_AWAY_FULL_ROI = (240, 340, 240, 120)
+_AWAY_FULL_TEXT = "暂离已满"
+
+
+def handle_away_full(context: Context) -> bool:
+    """点完「创建房间」/「开始挑战」后检查「暂离已满」弹窗；命中就跑完异常处理链。
+
+    返回 True = 出现了暂离已满（本次挑战没开始，调用方应放弃本次）；
+    返回 False = 没有这个弹窗，正常继续。
+
+    处理链全部在 Pipeline（`Exception_AwayFull` → 前往战斗列表 → 待确认 → 逐条待领取报酬
+    → 结算页「撤退/确认」→ 交回主页链），Python 只负责"认到就触发"，不重复写点击顺序。
+    """
+    if _find_in(context, _AWAY_FULL_ROI, _AWAY_FULL_TEXT) is None:
+        return False
+    logger.warning(
+        "机神降临：检测到「暂离已满」弹窗，本次挑战没有真正开始；"
+        "转异常处理流程（前往战斗列表 → 待确认 → 领取报酬 → 回主页）。"
+    )
+    context.run_task("Exception_AwayFull")
+    return True
+
+
 def _create_god_room(context: Context) -> bool:
     """「创建房间」模块：从机神挑战页创建房间直到进入战斗。
 
@@ -888,6 +1052,10 @@ def _create_god_room(context: Context) -> bool:
         return False
     _click_box(context, create)
     time.sleep(_CLICK_SETTLE)
+
+    # 1.5 「暂离已满」门控（用户需求）：挂机暂离位满了会弹框，本次挑战不会真正开始
+    if handle_away_full(context):
+        return False
 
     # 2. 助战选择（创建房间后实测必弹）→ **必须**按全局配置选，且校验进了编队页
     state = _wait_support_or_formation(

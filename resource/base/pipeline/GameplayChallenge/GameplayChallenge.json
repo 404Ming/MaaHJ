@@ -280,6 +280,7 @@
         "post_delay": 500,
         "timeout": 3000,
         "next": [
+            "[JumpBack]Exception_AwayFull",
             "GameplayChallenge_StaminaRefillGate",
             "GameplayChallenge_PickSupport",
             "GameplayChallenge_FormationStart"
@@ -460,6 +461,7 @@
         "post_delay": 500,
         "timeout": 2500,
         "next": [
+            "[JumpBack]Exception_AwayFull",
             "GameplayChallenge_BattleEnter"
         ]
     },
@@ -568,6 +570,7 @@
         },
         "timeout": 2000,
         "next": [
+            "[JumpBack]Exception_AwayFull",
             "GameplayChallenge_SettleRefillGate",
             "[JumpBack]GameplayChallenge_BattleTurn",
             "[JumpBack]GameplayChallenge_ResultNextStage",
@@ -778,9 +781,30 @@
         "post_delay": 500,
         "timeout": 1200
     },
-    "GameplayChallenge_FriendCancel": {
-        "max_hit": 5,
-        // 副本结束后可能弹出「好友申请」（助战玩家），选「取消」不做社交操作。
+    "GameplayChallenge_FriendApplyText": {
+        // 「好友申请」弹窗正文（实测 box (176,742,366,32)「是否向该名玩家发送好友申请」）。
+        // 只做门控，不点击 —— 给 FriendCancel 用 And 组合，避免"看到随便一个『取消』就点"。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    100,
+                    700,
+                    520,
+                    110
+                ],
+                "expected": [
+                    "发送好友申请"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000
+    },
+    "GameplayChallenge_FriendCancelButton": {
+        // 好友申请弹窗左侧「取消」(实测 box (157,849,70,40))。只做识别，点击在 FriendCancel。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -793,6 +817,31 @@
                 "expected": [
                     "取消"
                 ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 2000
+    },
+    "GameplayChallenge_FriendCancel": {
+        "max_hit": 5,
+        // 副本结束后可能弹出「好友申请」（助战玩家），选「取消」不做社交操作。
+        // ⚠️ 必须是 And：只认「取消」这两个字会误点**别的弹窗**左侧的取消——
+        //    实机 2026-10-28 复现：编队页点「开始战斗」后弹「暂离已满」，本节点只凭
+        //    (110,820,160,80) 里的「取消」(166,822,68,42) 就直接点掉了，
+        //    正确做法是交给 Exception_AwayFull 去点「前往战斗列表」。
+        //    加上「是否向该名玩家发送好友申请」门控后，暂离弹窗不会再被本节点吃掉。
+        "recognition": {
+            "type": "And",
+            "param": {
+                "all_of": [
+                    "GameplayChallenge_FriendApplyText",
+                    "GameplayChallenge_FriendCancelButton"
+                ],
+                // box_index=1：用第二个子节点（「取消」按钮）的框去点中心，
+                // 与 StaminaRefill 的「使田/使用」And 用法一致，不写死坐标。
+                "box_index": 1
             }
         },
         "action": {

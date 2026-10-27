@@ -6,6 +6,7 @@ ACTION_MODULES = (
     "machine_god_descent",
     "dungeon_challenge",
     "auto_idle",
+    "auto_idle_battle",
     "shop",
     "alchemy",
     "stamina_refill",

@@ -2,11 +2,40 @@
     "BackToMainHub_Start": {
         // 回主页链入口：目标是**从任意页面回到主页**（用户需求）。
         // 判定顺序 =「动作越轻越优先」，除末位兜底外全是条件节点（只在正面识别到时才动手，绝不盲点）：
-        //   1) AtMainHub    已在主页 → 直接 Done；
-        //   2) RewardClose  「恭喜获得 / 点击空白区域关闭」遮屏提示 → 点空白关掉（复用公共异常节点）；
-        //   3) CloseIcon    任意「X」关闭图标（道具详情 / 公告 / 浮层）→ 点掉（复用公共异常节点）；
-        //   4) Back         左下角返回图标（本作子页面统一在这里）→ 退一级，最多 8 级；
-        //   5) Escalate     以上全不命中（满屏加载页 / 认不出的页面）→ 交给公共异常重路径。
+        //   1) AtMainHub      已在主页 → 直接 Done；
+        //   2) StopIdle       **「自动挂机中…」页面** → 先点「停止挂机」（用户要求）；
+        //                     点完会回到正在进行的那场战斗，残留的「暂离已满」弹窗交给第 3 步处理
+        //                     （只点「前往战斗列表」，绝不点「取消」）；
+        //   3) Exception_Start 公共异常入口（暂离已满 / 补充体力 / 奖励遮屏 / 好友申请 / 活动速递 / 机神挑战 / 断线）；
+        //   4) InBattle       **战斗中**（顶部「第N回合」/「战斗剩余时间」）→ 菜单 → 撤退；
+        //   4b) BattleFailed   **作战失败**结算页 → 点底部「撤退」；
+        //   4b) BattleRetreat **战斗设置面板已打开**（用户手动点过菜单 / 上一轮撤退没走完）
+        //                     → 直接点面板里的「撤退」。面板是覆盖层，此时 InBattle 的顶部锚点被遮，
+        //                     不单独处理就会掉到 BackBlind 盲点 (63,1230)（战斗页那里是支援请求按钮）；
+        //   5) RewardClose    「恭喜获得 / 点击空白区域关闭」遮屏提示 → 点空白关掉（复用公共异常节点）；
+        //   6) CloseIcon      任意「X」关闭图标（道具详情 / 公告 / 浮层）→ 点掉（复用公共异常节点）；
+        //   7) Back           左下角返回图标（本作子页面统一在这里）→ 退一级，最多 8 级；
+        //   8) BackBlind      返回图标认不到时的固定返回点兜底（商店类圆角小蓝钮），最多 3 级；
+        //   9) GameNotRunning 上面全不命中（桌面 / 未启动 / 满屏加载页）→ 交给启动游戏流程。
+        //
+        // ⚠️ Exception_Start 是**弹窗层的总入口**：旧版这里是 [JumpBack]Escalate → Exception_Unknown，
+        //    删掉 Escalate 之后「好友申请 / 活动速递 / 断线重连」这些弹窗在回主页链上就没人处理了
+        //    （异常处理节点只允许出现在有条件命中的入口里，不能直接堆在 next 上）。
+        //    现在直接挂公共异常入口：没异常时它**不命中**，候选自动往后走。
+        //
+        // ⚠️ InBattle 必须排在 BackBlind 之前：战斗页左下角 (63,1230) 是「发送多人支援请求！」
+        //    （实测 box (54,1244,174,26)），BackBlind 的固定返回点会打到它上面、弹出支援窗，
+        //    而且战斗页没有底部导航栏，继续盲点只会把画面搅乱。
+        // ⚠️ InBattle 用 [JumpBack]：子链正常走完（撤退成功）后回到本节点继续判主页，
+        //    以处理撤退后可能残留的结算页 / 确认框。
+        //    子链中途认不到按钮时整条任务结束（实测不会回跳到后面候选，也绝不盲点）——
+        //    战斗页上「失败就停」比「乱点」安全，详见 BackToMainHub_InBattle 的注释。
+        //
+        // ⚠️ 主页判据**只有**「惑星之间」一个（用户要求）。旧版还挂过一个「菜单」锚点
+        //    (580,1195,140,85)，实机 2026-10-23 离线复核：**主城（世界）页底部也有「菜单」**
+        //    （实测 box (637,1232,55,32)），于是「主城 / 其他带底部导航的子页面」会被误判成主页、
+        //    回主页链提前 Done，后续任务在错误页面上继续跑。故该锚点已删除。
+        //
         // timeout 是**本次候选列表的识别预算**：这里有两处 OCR + 两处模板匹配，比原来长；
         // 沿用默认 20000 会被框架按单步超时打断、报 bad next 判任务失败，故显式放宽到 25000。
         "action": {
@@ -15,44 +44,23 @@
         "timeout": 25000,
         "next": [
             "BackToMainHub_AtMainHub",
-            "BackToMainHub_AtMainHubMenu",
+            "[JumpBack]BackToMainHub_StopIdle",
+            "[JumpBack]Exception_Start",
+            "[JumpBack]BackToMainHub_InBattle",
+            "[JumpBack]BackToMainHub_BattleFailed",
+            "[JumpBack]BackToMainHub_BattleRetreat",
             "[JumpBack]Exception_RewardClose",
             "[JumpBack]Exception_CloseIcon",
             "[JumpBack]BackToMainHub_Back",
             "[JumpBack]BackToMainHub_BackBlind",
-            "BackToMainHub_Escalate"
-        ]
-    },
-    "BackToMainHub_AtMainHubMenu": {
-        // 主页的第二个锚点：底部导航最右侧「菜单」（实测 box (636,1228,57,36)）。
-        // 保留两个锚点是为了防 OCR 抖动：「惑星之间」在横幅/弹窗半遮挡时偶尔读不到，
-        // 只认一个锚点会误判成「还没回主页」，进而去点不存在的返回图标、甚至升级到重启。
-        // 子页面右下角没有「菜单」，所以该位置只有主页会命中。
-        "recognition": {
-            "type": "OCR",
-            "param": {
-                "roi": [
-                    580,
-                    1195,
-                    140,
-                    85
-                ],
-                "expected": [
-                    "菜单"
-                ]
-            }
-        },
-        "action": {
-            "type": "DoNothing"
-        },
-        "timeout": 4000,
-        "next": [
-            "BackToMainHub_Done"
+            "BackToMainHub_GameNotRunning"
         ]
     },
     "BackToMainHub_AtMainHub": {
-        // 主页判定：底部导航第一个按钮显示「惑星之间」。
-        // 子页面时同一位置显示「返回 / 世界」，故该 ROI 可稳定区分两种状态。
+        // 主页判定（**唯一**判据，用户要求）：底部导航第一个按钮显示「惑星之间」。
+        // 实测主页「惑星之间」box (14,1236,98,29) score 0.999，ROI (0,1180,170,100) 整行兜住。
+        // 子页面同一位置显示「返回 / 世界」（实测主城页 (63,1194,54,31) / (78,1226,59,31)），
+        // 故该 ROI 可稳定区分「主页」与「游戏内子页面」，且不会把带底部导航的子页面误判成主页。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -75,12 +83,254 @@
             "BackToMainHub_Done"
         ]
     },
+    "BackToMainHub_StopIdle": {
+        // 「自动挂机中…」页面的出口（用户需求：回主页前必须先点「停止挂机」）。
+        // 实测 2026-10-28（720x1280，MuMu）：
+        //   挂机页右下「停止挂机」(299,1189,120,37)；同页还有「自动挂机中…」(303,869)、
+        //   「离线挂机」(624,1229)。点「停止挂机」后挂机页立刻消失，**玩家会被带回正在进行的战斗页**，
+        //   所以后面接的是 InBattle（菜单 → 撤退）那条既有路径，不需要另外设计。
+        // ⚠️ 必须排在 Exception_Start 之前：挂机页常常同时挂着「暂离已满」弹窗，
+        //    如果先走异常链会去「前往战斗列表」绕一圈；实测在挂机态直接点「前往战斗列表」
+        //    是**没反应**的（两次点击画面不变），只有先「停止挂机」弹窗才恢复可交互。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    270,
+                    1160,
+                    180,
+                    80
+                ],
+                "expected": [
+                    "停止挂机"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        // 停止挂机后若残留「暂离已满」弹窗，**不要点「取消」**（用户明确要求）：
+        // 交回 Start → Exception_Start → Exception_AwayFull 去点「前往战斗列表」，
+        // 把「待确认」里的报酬领掉再回主页。
+        "next": [
+            "BackToMainHub_Start"
+        ]
+    },
+    "BackToMainHub_InBattle": {
+        // 战斗页判定（用户需求：从**战斗中的页面**也能回主页）。
+        // 锚点取战斗页顶部两行：实测 720x1280「第1回合」box (505,6,134,28)、
+        // 「战斗剩余时间39:53」box (538,41,176,23)。用 Or 或起来，避免单行被战报/动画遮挡时漏判。
+        // 两个锚点都是战斗页专属；主页 / 主城 / 加载页 / 登录页 / 结算页实测都不命中。
+        // 命中后走「右侧菜单 → 战斗设置 → 撤退」子链，由 Start 以 [JumpBack] 调用。
+        // 实测（2026-10-23，静态图回放）：子链里任何一步认不到就**整条任务结束**，
+        // 既不会回跳 Start，也不会继续 Start 后面的 BackBlind 候选——
+        // 这正好是我们想要的：战斗页上失败时**绝不盲点** (63,1230)（那里是「发送多人支援请求！」）。
+        // 真实画面里点开菜单后是「战斗设置」面板，撤退按钮必定出现，所以正常路径能走完。
+        "recognition": {
+            "type": "Or",
+            "param": {
+                "any_of": [
+                    "BackToMainHub_BattleRound",
+                    "BackToMainHub_BattleTimer"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "BackToMainHub_BattleMenu"
+        ]
+    },
+    "BackToMainHub_BattleRound": {
+        // 「第N回合」只出现在战斗页顶部（实测 (505,6,134,28)）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    470,
+                    0,
+                    250,
+                    40
+                ],
+                "expected": [
+                    "第\\d+回合"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "BackToMainHub_BattleTimer": {
+        // 「战斗剩余时间」是战斗页第二行的倒计时标签（实测 (538,41,176,23)），比回合数更抗遮挡。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    520,
+                    35,
+                    220,
+                    40
+                ],
+                "expected": [
+                    "战斗剩余时间"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "BackToMainHub_BattleFailed": {
+        // 作战失败结算页（撤退后必然落到这里）：实测「作战失败」大字 box (240,190,239,71)，
+        // 页面中部是「角色强化 / 武器强化 / 魔物强化」推荐，底部唯一的离场按钮是「撤退」
+        // (337,1202,61,31)（截图 流程截图/公共功能/返回主页/1.2战斗中-菜单-撤离确认-作战失败.png）。
+        // ⚠️ 这一页没有底部导航、没有左下角返回图标：旧链会盲点 BackBlind，最后误判成「游戏未启动」
+        //    去重启游戏。必须先在这里识别出来，点掉底部「撤退」。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    170,
+                    160,
+                    380,
+                    130
+                ],
+                "expected": [
+                    "作战失败"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "BackToMainHub_BattleFailedExit"
+        ]
+    },
+    "BackToMainHub_BattleFailedExit": {
+        // 作战失败页底部的「撤退」（实测 box (337,1202,61,31)）。
+        // 与「战斗设置」面板里的「撤退」(162,973) 位置不同，两个 ROI 不重叠，不会互相误点。
+        // 点完无 next：由 [JumpBack] 回 Start 继续判主页（点完通常回副本页，再由 Back 逐级退回）。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    270,
+                    1160,
+                    180,
+                    90
+                ],
+                "expected": [
+                    "撤退"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000
+    },
+    "BackToMainHub_BattleMenu": {
+        // 战斗页右侧的「菜单」（实测 box (648,720,52,30)），点开是「战斗设置」面板。
+        // ROI 只框 y 700~760，**不会**碰到主页 / 主城底部导航的「菜单」(637,1232)。
+        // max_hit 3：奥义动画 / 弹窗挡住时最多重试 3 次，用尽后子链结束、回 Start 继续兜底。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    610,
+                    700,
+                    110,
+                    60
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 900,
+        "timeout": 3000,
+        "next": [
+            "BackToMainHub_BattleRetreat"
+        ]
+    },
+    "BackToMainHub_BattleRetreat": {
+        // 「战斗设置」面板左下角的「撤退」（实测 box (162,973,64,37)）。
+        // ⚠️ 撤退 = 真实放弃本场战斗（判负，已投入的体力/次数不退）。这是用户明确要求的
+        //    「从战斗中回主页」的唯一出口——游戏内没有「不撤退就离开战斗」的路径。
+        "max_hit": 3,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    120,
+                    940,
+                    160,
+                    80
+                ],
+                "expected": [
+                    "撤退"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 900,
+        "timeout": 3000,
+        "next": [
+            "BackToMainHub_BattleRetreatConfirm"
+        ]
+    },
+    "BackToMainHub_BattleRetreatConfirm": {
+        // 撤退二次确认（实测，截图 1.2战斗中-撤离确认.png）：
+        //   标题「撤退确认」(288,378,140,43)；
+        //   正文「您将直接离开该副本，该副本视为挑战失败…您确定要撤退吗」(101,538,536,31)；
+        //   左「取消」(164,813,68,41)、右「确认」(477,814,69,42)。
+        // ROI (430,795,175,90) 只框住右侧「确认」，**框不到左侧「取消」**（x 430 起，取消在 164~232），
+        // 所以不会误点成取消。点完即进入「作战失败」页，由 BackToMainHub_BattleFailed 接管。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    430,
+                    795,
+                    175,
+                    90
+                ],
+                "expected": [
+                    "确定|确认"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 2500
+    },
     "BackToMainHub_Back": {
         // 子页面判定并返回：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
         // 比 OCR「返回|世界」更稳：实测子页面左下角是纯图标按钮（无文字），OCR 反而读不到。
         // 执行完由 [JumpBack] 回 Start 重新判定。
         // max_hit 限制返回层级：从深层页面（战前准备 → 详情 → 列表 → 商店 → 活动一览 → 菜单）回来
-        // 需要 5 级以上，故给 8；用尽后交给 BackToMainHub_Escalate 的重路径，不会无限点。
+        // 需要 5 级以上，故给 8；用尽后交给 BackToMainHub_GameNotRunning 的启动兜底，不会无限点。
         "max_hit": 8,
         "recognition": {
             "type": "TemplateMatch",
@@ -111,9 +361,12 @@
         //   于是旧版回主页链在商店类页面会 5 次全落空、一路失败。
         // 这里按项目已实测有效的左下角返回位置点一次（与 StaminaRefill_Back / Shop.BACK_POINT 同一处）。
         // 落点 (73,1240) 与 Shop_Back / Shop_BackMenu 实测有效的固定返回点完全一致。
-        // 安全性：只在「两个主页锚点都没命中」之后才走到；主页上这个点就是底部「惑星之间」，点了也是原地。
-        // max_hit 6：给深层页面留够级数，用尽后交给 BackToMainHub_Escalate 的重路径，不无限点。
-        "max_hit": 6,
+        // 安全性：只在「主页锚点没命中」之后才走到；主页上这个点就是底部「惑星之间」，点了也是原地。
+        // max_hit 3（原 6）：商店 / 征伐印记 / 公会商店这类「模板认不出的页面」实测只需退 2~3 级
+        // 就到主页；更深层的退层由 Back 的模板命中负责（8 级）。降到 3 是为了减少**桌面 / 加载页**
+        // 上的盲点次数——(63,1230) 在桌面可能压在 Dock 图标上，误触会打开别的 app。
+        // 用尽后交给 BackToMainHub_GameNotRunning 的启动兜底，不无限点。
+        "max_hit": 3,
         "action": {
             "type": "Click",
             "param": {
@@ -128,19 +381,29 @@
         "post_delay": 700,
         "timeout": 3000
     },
-    "BackToMainHub_Escalate": {
-        // 末位兜底（一次任务只升级一次）：上面的轻动作全都不命中时，交给公共异常重路径
-        // Exception_Unknown —— 好友申请 → 关 X → 退一级 → Exception_BackToHub（尽力回主页，
-        // 退不回去才 Exception_Restart 重启游戏）。这是「从任意页面回到主页」承诺的最后一道保险：
-        // 满屏加载页 / 认不出的异常页面只有重启才能回到主页。
-        // max_hit 1：整轮任务最多升级一次，绝不允许反复重启。
+    "BackToMainHub_GameNotRunning": {
+        // 末位兜底：上面的轻动作全都不命中（没有主页锚点、没有返回图标、固定返回点也已经点过），
+        // 说明**当前不在可操作的游戏内页面**：桌面 / 游戏未启动 / 满屏加载页。
+        // 加载页没有任何可判定文字（实测 _test_out/launch/loading.png 全屏 OCR 只读到 1 个噪声框
+        // "IEEP" score 0.729），无法与桌面用文字区分，所以这里用「等待窗口 + 启动流程内部分流」处理。
+        //
+        // 先 pre_delay 5s 给加载页收尾，再交给「启动游戏」流程 LaunchGame_Start（用户需求）。
+        // LaunchGame_Start 自身会按「主页 → 登录前更新弹窗 → 点击登录游戏 → 已在游戏内」分流，
+        // **只有全部候选都不命中时才会 StartApp**，因此对已在前台的游戏不会盲目重复启动；
+        // 若 5s 内加载完成，它的 AtMainHub 直接命中 → LaunchGame_Done，等价于本链正常结束。
+        //
+        // max_hit 1：整轮任务只调用一次启动流程。用尽后本节点不再命中 → 候选链自然结束。
+        //            启动流程本身现在不会再回跳本链（2026-10-23 改版：不在主页就直接 StopApp → 等 5s
+        //            → StartApp，原来的 LaunchGame_InGame → BackToMainHub_Start 分支已删除），
+        //            这里的 max_hit 只是「一次任务最多启动一次」的保险。
         "max_hit": 1,
+        "pre_delay": 5000,
         "action": {
             "type": "DoNothing"
         },
         "timeout": 3000,
         "next": [
-            "Exception_Unknown"
+            "LaunchGame_Start"
         ]
     },
     "BackToMainHub_Done": {

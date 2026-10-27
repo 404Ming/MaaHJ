@@ -9,6 +9,20 @@
             "type": "DoNothing"
         }
     },
+    "Flag_ClaimHardChest": {
+        // 全局任务配置「胜利结算 · 领取高难限定宝箱」的开关载体（switch 选项覆写 enabled）。
+        // ⚠️ 默认 true，与 interface.json 的 default_case「Yes」一致（同 Flag_BattleSkipTurn /
+        //    DungeonChallenge_Flag_CreateRoom 的约定）；客户端没下发 override 时也应当去领。
+        // 实机 2026-10-25：传说副本战斗胜利后，「战斗胜利-战斗贡献结算」页右侧会出现
+        // 「高难限定宝箱 / 今日掉落：N/M」+「可领取高难限定宝箱啦！」；点宝箱图标 →
+        // 「是否领取高难限定宝箱？」→「确定」领取，今日掉落 N 减 1（3/4 → 2/4）。
+        // 关闭时不点宝箱：之后「战斗获得物品结算」点「确认」会弹「还未领取当前副本的
+        // 高难限定宝箱，是否退出副本？」，由结算流程点「确定」照常退出（不领取）。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
     "Flag_SupportCall": {
         // 全局任务配置「多人支援 · 发送多人支援请求」的开关载体（switch 选项覆写 enabled）。
         // 关闭时不点战斗左下角的「发送多人支援请求」，整段跳过。

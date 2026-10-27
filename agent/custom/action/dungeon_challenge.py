@@ -60,6 +60,7 @@ from .machine_god_descent import (
     _find_contains,
     _find_in,
     _wait_for,
+    handle_away_full,
 )
 
 # ---- 任务设置载体节点（interface.json 的选项覆写它们）--------------------------------
@@ -95,7 +96,7 @@ _SERIES_POPUP_ROI = (336, 325, 344, 430)
 _SERIES_POPUP_SWIPE_TO_TOP = (560, 420, 560, 700)
 _SERIES_POPUP_SWIPE_TO_BOTTOM = (560, 720, 560, 380)
 
-# 列表滚动：一屏 4 张卡，一次滑动约 4 张卡（实测 迪亚波罗→太阿）。
+# 列表滚动：一屏 4 张卡，一次滑动约 4 张卡（实测 迪亚波罗→奥蕾莉亚）。
 # ⚠️ 起点必须落在列表下半部分（y≈1150），从列表中部起滑实测**不滚动**。
 _LIST_SWIPE_TO_BOTTOM = (360, 1150, 360, 620)  # 内容上移 = 看后面的卡片
 _LIST_SWIPE_TO_TOP = (360, 620, 360, 1150)  # 内容下移 = 回到列表最上面
@@ -854,6 +855,11 @@ def _create_room(context: Context) -> bool:
         if attempt:
             logger.info("副本挑战：上一次点「创建房间」没反应，重新点一次。")
         _click_box(context, create)
+        time.sleep(0.8)  # 等弹窗画出来：点完「创建房间」若暂离位已满，弹窗会盖在这一帧上
+        # 「暂离已满」门控（用户需求）：挂机暂离位满了会弹框，本次挑战不会真正开始。
+        # 命中就交给公共异常链（战斗列表 → 待确认 → 领报酬 → 回主页），本次放弃。
+        if handle_away_full(context):
+            return False
         state = _wait_room_setup(context, 10)
         if state == "support":
             if not _pick_support_prefs(context):
@@ -1099,10 +1105,13 @@ def _battle_result(context: Context) -> bool | None:
     return None
 
 
-def _fight(context: Context) -> bool:
+def _fight(context: Context, timeout: float | None = None) -> bool:
     """推进一场房间战，直到出现胜利结算（底部「点击空白处继续」/「确认」）。
 
     中间按钮只有两个状态循环：**「跳过回合」→ 点 → 「回合开始」→ … → 「跳过回合」**。
+
+    `timeout` 为空时用本模块默认的 `_BATTLE_TIMEOUT`（600s）；主动战斗（自动挂机任务）
+    传自己的上限，避免在意外的"挂机自动战斗"画面上白等 10 分钟。
 
     ⚠️ 战斗里**只点「跳过回合」**（与玩法挑战 GameplayChallenge_BattleTurn 同一套语义）：
       · 「回合开始」绝对不能点 —— 点它会自己开一回合，把游戏内的自动战斗带偏
@@ -1115,6 +1124,7 @@ def _fight(context: Context) -> bool:
         —— 那个可点窗口很短，慢一拍就错过一整个回合；
       · 未开启：**完全不识别按钮状态、也不点任何按钮**，只低频轮询「战斗是否结束」。
     """
+    budget = _BATTLE_TIMEOUT if timeout is None else max(30.0, float(timeout))
     if not _wait_for_battle_presence(context, _BATTLE_PRESENCE_TIMEOUT):
         logger.warning("副本挑战：{} 秒内没看到战斗画面（战斗剩余时间/第N回合），仍按进入战斗处理并继续推进。",
                        _BATTLE_PRESENCE_TIMEOUT)
@@ -1125,7 +1135,7 @@ def _fight(context: Context) -> bool:
     except Exception as error:  # noqa: BLE001  附加功能，绝不能因为支援请求失败而中断战斗
         logger.warning("副本挑战：发送多人支援请求异常（忽略，继续战斗）：{}", error)
 
-    deadline = time.time() + _BATTLE_TIMEOUT
+    deadline = time.time() + budget
 
     if not _flag_enabled(context, _SKIP_TURN_FLAG):
         logger.info("副本挑战：全局「跳过回合」未开启 → 不识别按钮状态、不点任何按钮，只等结算。")
@@ -1134,7 +1144,7 @@ def _fight(context: Context) -> bool:
             if result is not None:
                 return result
             time.sleep(_BATTLE_STEP_SETTLE)
-        logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", _BATTLE_TIMEOUT)
+        logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", budget)
         return False
 
     logger.info("副本挑战：全局「跳过回合」已开启 → 高频轮询中间按钮，认到「跳过回合」立刻点。")
@@ -1175,7 +1185,7 @@ def _fight(context: Context) -> bool:
                 roi = _BATTLE_TURN_WIDE_ROI
         time.sleep(_BATTLE_FAST_SLEEP)
 
-    logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", _BATTLE_TIMEOUT)
+    logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", budget)
     return False
 
 
