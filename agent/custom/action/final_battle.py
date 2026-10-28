@@ -20,7 +20,9 @@
      · 幼年体 / 成年体：点「挑战」后若弹「助战选择」就按全局偏好选，再点「开始战斗」/「确定」；
        两个页面都没有说明已经直接进战斗，等战斗画面出现即可；
   5. 战斗模块（只点「跳过回合」，受全局开关 `Flag_BattleSkipTurn` 控制）；
-  6. 胜利：结算页优先点「挑战下一关」直接进下一场，否则连点「点击空白处继续/确认/确定」领奖；
+  6. 胜利：结算页优先点「挑战下一关」直接进下一场；这一下被体力/精力拦住时会弹
+     「补充体力」/「补充精力」，先走公共补充状态机补满、再点一次「挑战下一关」。
+     不点「挑战下一关」时才连点「点击空白处继续/确认/确定」领奖；
   7. 失败（用户要求）：取消复活 → 取消呼叫支援 → 撤退 → 重新点「挑战」；
   8. 按任务设置次数循环，结束回主页。
 
@@ -168,6 +170,22 @@ _NEXT_STAGE_ROI = (0, 1000, 720, 280)
 _NEXT_STAGE_WIDE_ROI = (0, 800, 720, 480)
 _RESULT_CONFIRM_ROI = (430, 795, 175, 90)
 _RESULT_CONFIRM_TEXT = "确定"
+
+# ---- 补充体力 / 补充精力（「挑战下一关」被体力拦住）------------------------------------
+# 点「挑战下一关」时体力/精力不够，游戏会**先弹补充界面而不是开战**（玩法挑战 / 副本挑战里是同一个弹窗）。
+# 这里直接复用公共状态机 `StaminaRefill_Dialog` / `EnergyRefill_Dialog`，不重写坐标与点击逻辑：
+#   · 体力：按全局「体力药消耗优先级」把体力补到需求为止，收尾由 StaminaRefill_Back 关掉弹窗；
+#   · 精力：默认吃第一个精力补给，收尾由 EnergyRefill_Back 关掉弹窗。
+# 门控 ROI / 文案与这两个节点完全一致，避免两边判定不一致导致「一边认到一边认不到」。
+_STAMINA_TITLE_ROI = (180, 120, 380, 100)
+_STAMINA_TITLE_TEXT = "补充体力"
+_ENERGY_TITLE_ROI = (200, 110, 340, 120)
+_ENERGY_TITLE_TEXT = "补充精力|恢复精力"
+# 每次「挑战下一关」最多补两次（体力一次 + 精力一次），补完仍开不了战就交回主线，绝不无限补。
+_REFILL_RETRY = 2
+# 点完「挑战下一关」后等战斗画面出现的上限：加载一般 3~6s，给到 8s 兜住慢加载，
+# 又不会在「补体力没成功、人还停在结算页」时白等太久。
+_NEXT_BATTLE_GATE = 8.0
 
 # ---- 失败处理（取消复活 → 取消呼叫支援 → 撤退）--------------------------------------
 _REVIVE_ROI = (80, 250, 560, 620)
@@ -408,6 +426,7 @@ def _create_room(context: Context) -> bool:
     if confirm_start is not None:
         _click_box(context, confirm_start)
         time.sleep(1.5)
+    _ensure_battle_started(context, _GOD_ROOM_START_ROI, _GOD_ROOM_START_TEXT)
     return True
 
 
@@ -455,6 +474,12 @@ def _enter_plain_battle(context: Context) -> bool:
             if confirm is not None:
                 _click_box(context, confirm)
                 time.sleep(1.5)
+            roi = (
+                _GOD_FORMATION_CONFIRM_ROI
+                if start_text == _GOD_FORMATION_CONFIRM_TEXT
+                else _GOD_ROOM_START_ROI
+            )
+            _ensure_battle_started(context, roi, start_text)
             return True
 
         if _wait_for_battle_presence(context, 0.5):
@@ -508,6 +533,87 @@ def _enter_battle(context: Context, target: str) -> bool:
 
 
 # ---- 胜利结算 / 挑战下一关 ---------------------------------------------------------
+def _find_next_stage(context: Context):
+    """找结算页的「挑战下一关」：先窄 ROI 再整条底部带，精确匹配优先、包含兜底。"""
+    return (
+        _find_in(context, _NEXT_STAGE_ROI, _NEXT_STAGE_TEXT)
+        or _find_contains(context, _NEXT_STAGE_ROI, _NEXT_STAGE_TEXT)
+        or _find_in(context, _NEXT_STAGE_WIDE_ROI, _NEXT_STAGE_TEXT)
+        or _find_contains(context, _NEXT_STAGE_WIDE_ROI, _NEXT_STAGE_TEXT)
+    )
+
+
+def _refill_stamina(context: Context, *, wait: float = 3.0) -> bool:
+    """结算/开战时若弹出「补充体力」或「补充精力」，走公共补充状态机补满并关掉弹窗。
+
+    返回是否真的补过一次（调用方据此重新点被拦下的按钮）。只认弹窗标题，认不到就返回 False，
+    绝不盲点 —— 没弹窗时本函数只在 wait 秒内轮询标题，不做任何点击。
+
+    为什么用 `StaminaRefill_Dialog` / `EnergyRefill_Dialog` 而不是 `Exception_Start`：
+    异常入口是「认到任意异常就整链处理」，在结算页跑它容易顺带点掉结算按钮；
+    这里只要体力/精力这一支，直接跑公共状态机最窄、最可控（`auto_idle_battle` 也是这么复用的）。
+    """
+    # 弹窗有开启动画（实测 1s 左右才完全展开），所以标题要**等**而不是只看一眼。
+    if _wait_for(context, _STAMINA_TITLE_ROI, _STAMINA_TITLE_TEXT, wait) is not None:
+        logger.info("终末之战：体力不足弹出「补充体力」，按全局体力药设置补一次。")
+        context.run_task("StaminaRefill_Dialog")
+        time.sleep(1.5)
+        return True
+    if _find_contains(context, _ENERGY_TITLE_ROI, _ENERGY_TITLE_TEXT) is not None:
+        logger.info("终末之战：精力不足弹出「补充精力」，按全局精力补给设置补一次。")
+        context.run_task("EnergyRefill_Dialog")
+        time.sleep(1.5)
+        return True
+    return False
+
+
+def _ensure_battle_started(context: Context, start_roi, start_text: str) -> None:
+    """开战按钮点完后若被体力/精力拦住（只弹补充界面、不进战斗），补满再点一次。
+
+    调用方已经点过一次开战按钮，所以第一轮只是「等弹窗出现」；命中才补、补完才重点，
+    全程最多 `_REFILL_RETRY` 次，不会在编队页上来回点。
+    """
+    for attempt in range(_REFILL_RETRY + 1):
+        if not _refill_stamina(context, wait=4.0 if attempt == 0 else 1.0):
+            return
+        button = _find_in(context, start_roi, start_text) or _find_contains(context, start_roi, start_text)
+        if button is None:
+            logger.info("终末之战：补完体力后没再看到「{}」，按已开战处理。", start_text)
+            return
+        logger.info("终末之战：补完体力，重新点「{}」开战。", start_text)
+        _click_box(context, button)
+        time.sleep(1.5)
+        confirm = _wait_for(context, _GOD_START_CONFIRM_ROI, _GOD_START_CONFIRM_TEXT, 6)
+        if confirm is not None:
+            _click_box(context, confirm)
+            time.sleep(1.5)
+    logger.warning("终末之战：连续补了 {} 次体力仍没开战，交回主线继续。", _REFILL_RETRY)
+
+
+def _click_next_stage(context: Context, box) -> None:
+    """点「挑战下一关」，并在被体力/精力拦住时补满后重点一次。
+
+    实测语义（同玩法挑战）：体力不足时这一次点击**不会开战**，只弹补充界面；
+    补完弹窗关掉后人还停在结算页，必须再点一次「挑战下一关」这一场才真正开始。
+    所以这里补完要重新找按钮重点，找不到说明已经自动开战，直接收手。
+    """
+    logger.info("终末之战：结算页点「{}」，直接进下一场。", _NEXT_STAGE_TEXT)
+    _click_box(context, box)
+    time.sleep(1.5)
+
+    for _attempt in range(_REFILL_RETRY):
+        if not _refill_stamina(context):
+            return
+        retry = _find_next_stage(context)
+        if retry is None:
+            logger.info("终末之战：补完体力后没再看到「{}」，按已进入下一场处理。", _NEXT_STAGE_TEXT)
+            return
+        logger.info("终末之战：补完体力，重新点「{}」把这一场开起来。", _NEXT_STAGE_TEXT)
+        _click_box(context, retry)
+        time.sleep(1.5)
+    logger.warning("终末之战：连续补了 {} 次体力仍停在结算页，交回主线继续。", _REFILL_RETRY)
+
+
 def _claim_rewards(context: Context, *, allow_next: bool = True) -> str:
     """胜利结算：优先「挑战下一关」快速进下一场，否则连点继续/确认/确定领奖。
 
@@ -517,18 +623,9 @@ def _claim_rewards(context: Context, *, allow_next: bool = True) -> str:
     返回 "next"（已用「挑战下一关」直接进下一场）/ "settled"（结算完，回到地图）。
     """
     for _round in range(_RESULT_ROUNDS):
-        next_box = None
-        if allow_next:
-            next_box = (
-                _find_in(context, _NEXT_STAGE_ROI, _NEXT_STAGE_TEXT)
-                or _find_contains(context, _NEXT_STAGE_ROI, _NEXT_STAGE_TEXT)
-                or _find_in(context, _NEXT_STAGE_WIDE_ROI, _NEXT_STAGE_TEXT)
-                or _find_contains(context, _NEXT_STAGE_WIDE_ROI, _NEXT_STAGE_TEXT)
-            )
+        next_box = _find_next_stage(context) if allow_next else None
         if next_box is not None:
-            logger.info("终末之战：结算页点「{}」，直接进下一场。", _NEXT_STAGE_TEXT)
-            _click_box(context, next_box)
-            time.sleep(1.5)
+            _click_next_stage(context, next_box)
             return "next"
 
         box = (
@@ -712,15 +809,19 @@ class FinalBattleRun(CustomAction):
                 break
 
             if in_next_battle:
-                # 已经由「挑战下一关」开好下一场：直接推进战斗
+                # 已经由「挑战下一关」开好下一场：直接推进战斗。
+                # ⚠️ 先确认战斗真的在场：「挑战下一关」被体力/精力拦住、又没补成功时人还停在结算页，
+                #    这时直接进 _fight 会白等一整个 _BATTLE_TIMEOUT（10 分钟）才收手。
                 in_next_battle = False
-                if not _fight(context, _BATTLE_TIMEOUT, extra_over=_revive_prompt):
-                    _defeat_flow(context)
+                if _wait_for_battle_presence(context, _NEXT_BATTLE_GATE):
+                    if not _fight(context, _BATTLE_TIMEOUT, extra_over=_revive_prompt):
+                        _defeat_flow(context)
+                        continue
+                    in_next_battle = _claim_rewards(context, allow_next=done + 1 < times) == "next"
+                    done += 1
+                    logger.info("终末之战：第 {}/{} 次完成（挑战下一关）。", done, times)
                     continue
-                in_next_battle = _claim_rewards(context, allow_next=done + 1 < times) == "next"
-                done += 1
-                logger.info("终末之战：第 {}/{} 次完成（挑战下一关）。", done, times)
-                continue
+                logger.warning("终末之战：「挑战下一关」没有真正开起战斗，退回地图流程重新点「挑战」。")
 
             logger.info("终末之战：第 {}/{} 次开始。", done + 1, times)
             outcome = "fail"
