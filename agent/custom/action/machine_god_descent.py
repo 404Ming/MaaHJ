@@ -191,7 +191,7 @@ def _dismiss_machine_god_dialog(context: Context) -> bool:
     if cancel is None:
         logger.warning("机神降临：看到机神挑战邀请弹窗但认不到「取消」，不点任何东西。")
         return False
-    logger.info("机神降临：遇到机神挑战邀请弹窗，点「取消」不前往。")
+    logger.debug("机神降临：遇到机神挑战邀请弹窗，点「取消」不前往。")
     _click_box(context, cancel)
     time.sleep(_CLICK_SETTLE)
     return True
@@ -312,7 +312,7 @@ def _run_battle_turns(context: Context, is_over, timeout: float) -> bool:
         )
 
     skip_turn = _flag_enabled(context, _SKIP_TURN_FLAG)
-    logger.info(
+    logger.debug(
         "机神降临：战斗推进开始，全局「跳过回合」{}。",
         "已开启 → 只点「跳过回合」" if skip_turn else "未开启 → 不点任何按钮，只等结算",
     )
@@ -415,7 +415,7 @@ def _run_battle(context: Context, *, post_roi, post_texts, challenge_roi=_MGD_BO
 
     # 好友申请弹窗（用了陌生助战会弹）→ 取消；绝不给别的玩家发申请
     if _wait_for(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT, 3) is not None:
-        logger.info("机神降临：结算后弹出好友申请框，点「取消」。")
+        logger.debug("机神降临：结算后弹出好友申请框，点「取消」。")
         _click_box(context, _find_in(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT))
         time.sleep(_CLICK_SETTLE)
 
@@ -456,7 +456,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
         """
         if _find_in(context, _MGD_BOTTOM_ROI, _CHALLENGE_TEXT) is None:
             return False
-        logger.info("机神降临：点「探索」后遇到了挑战，开始处理这一场。")
+        logger.debug("机神降临：点「探索」后遇到了挑战，开始处理这一场。")
         return _run_battle(context, post_roi=_EXPLORE_ROI, post_texts=(_EXPLORE_TEXT,))
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
@@ -466,10 +466,10 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
 
         remaining = _read_unlock_remaining(context)
         if remaining is None:
-            logger.info("机神降临：没有「探索N次开启自动探索」提示 → 自动探索已解锁，本段无需处理。")
+            logger.debug("机神降临：没有「探索N次开启自动探索」提示 → 自动探索已解锁，本段无需处理。")
             return CustomAction.RunResult(success=True)
 
-        logger.info("机神降临：自动探索仍锁着（还需探索 {} 次），开始点「探索」。", remaining)
+        logger.debug("机神降临：自动探索仍锁着（还需探索 {} 次），开始点「探索」。", remaining)
         clicked = 0
         no_progress = 0
         while clicked < _MAX_CLICKS:
@@ -483,7 +483,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
 
             now = _read_unlock_remaining(context)
             if now is None:
-                logger.info("机神降临：自动探索已解锁（共点 {} 次「探索」）。", clicked)
+                logger.debug("机神降临：自动探索已解锁（共点 {} 次「探索」）。", clicked)
                 return CustomAction.RunResult(success=True)
             if now >= remaining:
                 # 读数没降 —— 很可能是这次点「探索」触发了弹窗/挑战（实测两种：机神邀请弹窗、挑战）。
@@ -491,7 +491,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
                 if _dismiss_machine_god_dialog(context):
                     after = _read_unlock_remaining(context)
                     if after is None:
-                        logger.info("机神降临：自动探索已解锁（共点 {} 次「探索」，途中关掉机神邀请）。", clicked)
+                        logger.debug("机神降临：自动探索已解锁（共点 {} 次「探索」，途中关掉机神邀请）。", clicked)
                         return CustomAction.RunResult(success=True)
                     no_progress = 0
                     remaining = after
@@ -499,7 +499,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
                 if self._clear_challenge(context):
                     after = _read_unlock_remaining(context)
                     if after is None:
-                        logger.info("机神降临：自动探索已解锁（共点 {} 次「探索」，途中清掉挑战）。", clicked)
+                        logger.debug("机神降临：自动探索已解锁（共点 {} 次「探索」，途中清掉挑战）。", clicked)
                         return CustomAction.RunResult(success=True)
                     no_progress = 0
                     remaining = after
@@ -546,11 +546,11 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
 
         # ---- 0. 机神挑战邀请弹窗在场就先关掉（挡住下面的控件识别）----
         if _dismiss_machine_god_dialog(context):
-            logger.info("机神降临：进页时有机神挑战邀请弹窗，已点「取消」关闭。")
+            logger.debug("机神降临：进页时有机神挑战邀请弹窗，已点「取消」关闭。")
 
         # ---- 1. 已在自动探索中 → 先停止 ----
         if _find_in(context, _STOP_RUNNING_ROI, _STOP_RUNNING_TEXT) is not None:
-            logger.info("机神降临：已在自动探索中，按流程先停止。")
+            logger.debug("机神降临：已在自动探索中，按流程先停止。")
             _click_box(context, _find_in(context, _STOP_RUNNING_ROI, _STOP_RUNNING_TEXT))
             time.sleep(_CLICK_SETTLE)
             confirm = _wait_for(context, _STOP_PANEL_CONFIRM_ROI, _STOP_PANEL_CONFIRM_TEXT)
@@ -562,9 +562,9 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
             if _wait_for(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT) is None:
                 logger.error("机神降临：确认停止后没看到「自动探索」按钮，无法确认已停止。")
                 return CustomAction.RunResult(success=False)
-            logger.info("机神降临：已停止自动探索（奖励按面板说明保留）。")
+            logger.debug("机神降临：已停止自动探索（奖励按面板说明保留）。")
         else:
-            logger.info("机神降临：当前不在自动探索中，直接进入设置。")
+            logger.debug("机神降临：当前不在自动探索中，直接进入设置。")
 
         # ---- 2. 打开自动探索设置面板 ----
         button = _find_in(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT)
@@ -585,7 +585,7 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
         else:
             expected = min(_MAX_HOURS, tools // _TOOLS_PER_HOUR)
             if hours == expected:
-                logger.info(
+                logger.debug(
                     "机神降临：时长校验通过 {} 小时 = 可用最大值（侦察工具 {}，每 {} 个 1 小时）。",
                     hours,
                     tools,
@@ -611,7 +611,7 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
         if _wait_for(context, _STOP_RUNNING_ROI, _STOP_RUNNING_TEXT) is None:
             logger.error("机神降临：点「开启探索」后没看到「停止自动探索」，无法确认已开启。")
             return CustomAction.RunResult(success=False)
-        logger.info("机神降临：自动探索已开启。")
+        logger.debug("机神降临：自动探索已开启。")
         return CustomAction.RunResult(success=True)
 
 
@@ -810,7 +810,7 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
             return CustomAction.RunResult(success=True)
         target = _read_element_target(context)
         if target not in ELEMENT_BOSSES:
-            logger.info(
+            logger.debug(
                 "机神降临：任务设置「挑战元素自律机械」没有指定有效 BOSS（target={!r}），跳过本段。",
                 target,
             )
@@ -821,12 +821,12 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
         for text in _ELEMENT_ENTRY_TEXTS:
             entry = _find_contains(context, _ELEMENT_ENTRY_ROI, text)
             if entry is not None:
-                logger.info("机神降临：点左上角「{}」进入挑战页。", text)
+                logger.debug("机神降临：点左上角「{}」进入挑战页。", text)
                 _click_box(context, entry)
                 time.sleep(_CLICK_SETTLE)
                 break
         if entry is None:
-            logger.info("机神降临：没看到左上角入口（可能已在挑战页）。")
+            logger.debug("机神降临：没看到左上角入口（可能已在挑战页）。")
 
         # 2. 按设置次数循环；每轮先把页面推进到目标 BOSS，推不到就整段跳过
         done = 0
@@ -849,7 +849,7 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
                     logger.warning("机神降临：点了「{}」的卡，但没有进入它的详情页。", target)
                     state = "skip"
             if state == "skip":
-                logger.info(
+                logger.debug(
                     "机神降临：当前挑战页不是「{}」（既没有它，也没有「大量出现」可选），"
                     "按任务设置跳过本段挑战。",
                     target,
@@ -1126,7 +1126,7 @@ def _run_god_battle(context: Context) -> str:
     if entry is None:
         logger.warning("机神降临：认不到机神挑战入口（挑战/挑战机神/机神降临横幅）。")
         return "fail"
-    logger.info(
+    logger.debug(
         "机神降临：点机神挑战入口「{}」({} 路径)。",
         entry_kind,
         "直接进" if entry_kind == "direct" else "邀请框",
@@ -1190,7 +1190,7 @@ def _run_god_battle(context: Context) -> str:
 
     # 9. 好友申请弹窗（用了陌生助战会弹）→ 取消；绝不给别的玩家发申请
     if _wait_for(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT, 3) is not None:
-        logger.info("机神降临：结算后弹出好友申请框，点「取消」。")
+        logger.debug("机神降临：结算后弹出好友申请框，点「取消」。")
         _click_box(context, _find_in(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT))
         time.sleep(_CLICK_SETTLE)
 

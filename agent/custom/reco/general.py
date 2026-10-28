@@ -84,5 +84,5 @@ class ExampleRecognition(CustomRecognition):
         if box is not None:
             return CustomRecognition.AnalyzeResult(box=box, detail=detail)
 
-        logger.info("ExampleRecognition has no node or box configured; replace it with project logic.")
+        logger.debug("ExampleRecognition has no node or box configured; replace it with project logic.")
         return None

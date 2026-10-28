@@ -97,7 +97,7 @@ class DailyChallengeGameplay(CustomAction):
             },
         }
 
-        logger.info(
+        logger.debug(
             "日常任务：调用玩法挑战，副本={}，难度={}，次数={}。",
             dungeon,
             difficulty,

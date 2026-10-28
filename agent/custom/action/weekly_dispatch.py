@@ -166,7 +166,7 @@ class WeeklyDispatch(CustomAction):
             return CustomAction.RunResult(success=False)
 
         hit_count = context.get_hit_count("Weekly_Dispatch")
-        logger.info("WeeklyDispatch: hit_count={} max_dispatches={}", hit_count, max_dispatches)
+        logger.debug("WeeklyDispatch: hit_count={} max_dispatches={}", hit_count, max_dispatches)
         if max_dispatches is not None and hit_count > max_dispatches:
             logger.info("WeeklyDispatch: 已达到 max_dispatches={}，结束派发。", max_dispatches)
             context.override_pipeline({"Weekly_Dispatch": {"enabled": False}})
@@ -186,7 +186,7 @@ class WeeklyDispatch(CustomAction):
             return CustomAction.RunResult(success=True)
 
         kind, dungeon, times = chosen
-        logger.info(
+        logger.debug(
             "WeeklyDispatch: 派发任务 kind={} dungeon={} times={} pool={}",
             kind,
             dungeon,
@@ -196,7 +196,7 @@ class WeeklyDispatch(CustomAction):
 
         if dry_run:
             # 诊断模式：只识别并记录派发结果，不进入玩法挑战/祈愿，不消耗体力或抽卡资源。
-            logger.info("WeeklyDispatch: dry_run=True，仅记录派发结果，不执行子流程。")
+            logger.debug("WeeklyDispatch: dry_run=True，仅记录派发结果，不执行子流程。")
             context.override_pipeline({"Weekly_Dispatch": {"enabled": False}})
             # 允许后续 Weekly_OpenPage 再进一次周常页，验证重入链路；最后 Weekly_Finish 正常回主页。
             for node_name in (*RESET_BEFORE_RETURN, *RESET_BEFORE_REOPEN):

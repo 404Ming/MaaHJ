@@ -894,7 +894,7 @@ class PickSupport(CustomAction):
             index = min(attempt, len(entries) - 1)
             entry = entries[index]
             x, y = _entry_click_point(entry)
-            logger.info(
+            logger.debug(
                 "PickSupport: 点击助战条目(属性={}, 类型={}) at ({}, {})，第 {}/{} 条。",
                 entry["element"],
                 entry["type"],
@@ -931,7 +931,7 @@ class PickSupport(CustomAction):
         desired = prefs.get(team_element)
 
         if support_element == team_element and (desired is None or current == desired):
-            logger.info(
+            logger.debug(
                 "PickSupport: 队伍属性={}, 当前助战属性={} 类型={}, 期望={}, 直接开始。",
                 team_element,
                 support_element,
@@ -940,7 +940,7 @@ class PickSupport(CustomAction):
             )
             return CustomAction.RunResult(success=True)
 
-        logger.info(
+        logger.debug(
             "PickSupport: 队伍属性={}, 当前助战是 {} 属性/{} 类型, 期望 属性={} 类型={}, 需要换。",
             team_element,
             support_element,
@@ -986,9 +986,9 @@ class PickSupport(CustomAction):
                 and selected[0] == team_element
                 and (desired is None or selected[1] == desired or target.get("loose"))
             ):
-                logger.info("PickSupport: 已选到符合的魔物(属性={}, 类型={})。", team_element, selected[1])
+                logger.debug("PickSupport: 已选到符合的魔物(属性={}, 类型={})。", team_element, selected[1])
                 return CustomAction.RunResult(success=True)
-            logger.info("PickSupport: 第 {} 次重选后仍未完全匹配（当前 {}），继续。", attempt + 1, selected)
+            logger.debug("PickSupport: 第 {} 次重选后仍未完全匹配（当前 {}），继续。", attempt + 1, selected)
 
         logger.warning("PickSupport: 循环 {} 次仍未匹配，按当前助战继续挑战。", _MAX_SUPPORT_ATTEMPTS)
         return CustomAction.RunResult(success=True)
@@ -1074,17 +1074,17 @@ class PickSupport(CustomAction):
         if img is not None:
             x = _tab_x_for_element(img, team_element)
             if x is not None:
-                logger.info("PickSupport: 按颜色认出 {} 属性页签 x={}。", team_element, x)
+                logger.debug("PickSupport: 按颜色认出 {} 属性页签 x={}。", team_element, x)
                 return x
             selected = _selected_tab_x(img)
             if selected is not None:
                 active = self._active_element(context)
                 if active == team_element:
-                    logger.info("PickSupport: 当前选中的页签就是 {}（列表内容确认）x={}。", team_element, selected)
+                    logger.debug("PickSupport: 当前选中的页签就是 {}（列表内容确认）x={}。", team_element, selected)
                     return selected
-                logger.info("PickSupport: 当前选中页签是 {}，不是 {}，继续找。", active, team_element)
+                logger.debug("PickSupport: 当前选中页签是 {}，不是 {}，继续找。", active, team_element)
         # 页签行一屏只放得下 5 个（火/风/土/水/光），暗 要横向滑动才露出（用户实测）
-        logger.info("PickSupport: 可见页签里没有可用的 {} 属性页签，横向滑动元素页签行后再认。", team_element)
+        logger.debug("PickSupport: 可见页签里没有可用的 {} 属性页签，横向滑动元素页签行后再认。", team_element)
         self._reveal_tab_row(context)
         img = _screencap(context)
         if img is None:
@@ -1095,10 +1095,10 @@ class PickSupport(CustomAction):
             # 用列表内容确认它是不是队伍属性。
             selected = _selected_tab_x(img)
             if selected is not None and self._active_element(context) == team_element:
-                logger.info("PickSupport: 滑动后可见的选中态页签就是 {} x={}。", team_element, selected)
+                logger.debug("PickSupport: 滑动后可见的选中态页签就是 {} x={}。", team_element, selected)
                 return selected
         if x is not None:
-            logger.info("PickSupport: 滑动后按颜色认出 {} 属性页签 x={}。", team_element, x)
+            logger.debug("PickSupport: 滑动后按颜色认出 {} 属性页签 x={}。", team_element, x)
         else:
             logger.warning("PickSupport: 滑动后仍认不出 {} 属性页签，退回实测坐标映射。", team_element)
         return x
@@ -1125,20 +1125,20 @@ class PickSupport(CustomAction):
         # 队伍与列表都是 暗，暗 恰好是选中态宽块（按设计不判色）、当时又被滑出视野，
         # 于是白跑了"横向滑动页签行 + 逐个位置试"：4 个页签、约 50 秒。
         if self._active_element(context) == team_element:
-            logger.info("PickSupport: 当前列表已经是 {} 属性，无需切页签，直接找。", team_element)
+            logger.debug("PickSupport: 当前列表已经是 {} 属性，无需切页签，直接找。", team_element)
             target = self._scan_entries(context, team_element, desired)
             if target is not None:
                 return target
             loose = self._scan_entries(context, team_element, None)
             if loose is not None:
-                logger.info(
+                logger.debug(
                     "PickSupport: {} 列表里没有 类型={} 的魔物，退一步接受同属性的条目。",
                     team_element,
                     desired,
                 )
                 loose["loose"] = True
                 return loose
-            logger.info("PickSupport: {} 列表里没有可用条目（页签本来就是对的，不再换页签）。", team_element)
+            logger.debug("PickSupport: {} 列表里没有可用条目（页签本来就是对的，不再换页签）。", team_element)
             return None
 
         # 主路径：**像认徽章一样按颜色认出**该属性的页签（页签行可横向滚动，必要时先滑出来）。
@@ -1147,14 +1147,14 @@ class PickSupport(CustomAction):
             # 兜底：认不出（截图失败/颜色异常）才退回实测坐标映射（只覆盖可见的 5 个）
             tab_x = _ELEMENT_TAB_X.get(team_element)
         if tab_x is not None:
-            logger.info("PickSupport: 直接切到 {} 属性的元素页签 (x={})。", team_element, tab_x)
+            logger.debug("PickSupport: 直接切到 {} 属性的元素页签 (x={})。", team_element, tab_x)
             self._switch_tab(context, tab_x)
             target = self._scan_entries(context, team_element, desired)
             if target is not None:
                 return target
             loose = self._scan_entries(context, team_element, None)
             if loose is not None:
-                logger.info(
+                logger.debug(
                     "PickSupport: {} 页签里没有 类型={} 的魔物，退一步接受同属性(类型={})的条目。",
                     team_element,
                     desired,
@@ -1167,20 +1167,20 @@ class PickSupport(CustomAction):
             # 所以**不再盲试其它 4 个页签** —— 实测那要白花约 30 次滑动 / 30+ 秒。
             # 只把页签与列表恢复成"队伍属性 + 列表在顶部"，便于调用方收尾时挑到同属性条目
             # （实测事故：风队被配到光助战，比不换还差）。
-            logger.info("PickSupport: {} 页签里没有可用条目，恢复页签后按当前助战继续。", team_element)
+            logger.debug("PickSupport: {} 页签里没有可用条目，恢复页签后按当前助战继续。", team_element)
             self._switch_tab(context, tab_x)
             return None
         # 未映射的属性（目前只有 暗，需横向滑动才露出）：滑动后各页签 x 会整体偏移，
         # 所以不写死坐标，逐个位置点、**用列表内容验证**。
         for x in _ELEMENT_TAB_FALLBACK_X:
-            logger.info("PickSupport: 试切页签位置 (x={})，找 {} 属性条目。", x, team_element)
+            logger.debug("PickSupport: 试切页签位置 (x={})，找 {} 属性条目。", x, team_element)
             self._switch_tab(context, x)
             target = self._scan_entries(context, team_element, desired)
             if target is not None:
                 return target
             loose = self._scan_entries(context, team_element, None)
             if loose is not None:
-                logger.info(
+                logger.debug(
                     "PickSupport: 该页签里没有 类型={} 的魔物，退一步接受同属性(类型={})的条目。",
                     desired,
                     loose["type"],

@@ -510,7 +510,7 @@ def _dismiss_leave_room(context: Context) -> bool:
     if confirm is None:
         logger.warning("副本挑战：看到「确认退出房间」弹窗但认不到「确定」，不盲点。")
         return False
-    logger.info("副本挑战：关闭「确认退出房间」弹窗（点确定退出房间）。")
+    logger.debug("副本挑战：关闭「确认退出房间」弹窗（点确定退出房间）。")
     _click_box(context, confirm)
     time.sleep(_CLICK_SETTLE)
     return True
@@ -536,7 +536,7 @@ def _dismiss_friend_request(context: Context, timeout: float = 0.0) -> bool:
             if cancel is None:
                 logger.warning("副本挑战：看到「好友申请」弹窗但认不到「取消」，不盲点。")
                 return False
-            logger.info("副本挑战：结算后弹出「好友申请」，点「取消」（不发送申请）。")
+            logger.debug("副本挑战：结算后弹出「好友申请」，点「取消」（不发送申请）。")
             _click_box(context, cancel)
             time.sleep(_CLICK_SETTLE * 0.6)
             return True
@@ -596,7 +596,7 @@ def _goto_series_page(context: Context) -> bool:
     if nav is None:
         logger.error("副本挑战：主页底部导航认不到「副本」按钮，本次放弃。")
         return False
-    logger.info("副本挑战：主页点底部导航「副本」。")
+    logger.debug("副本挑战：主页点底部导航「副本」。")
     _click_box(context, nav)
     time.sleep(_CLICK_SETTLE + 0.8)
     if _on_series_page(context):
@@ -616,7 +616,7 @@ def _scan_dungeon_list(context: Context, keyword: str, screen: int):
     """扫当前这一屏的副本标题，命中关键字返回识别框，否则 None。"""
     for text, box in _ocr(context, _LIST_ROI):
         if keyword in text.replace(" ", ""):
-            logger.info("副本挑战：第 {} 屏找到副本「{}」（{}）。", screen, keyword, text.strip())
+            logger.debug("副本挑战：第 {} 屏找到副本「{}」（{}）。", screen, keyword, text.strip())
             return box
     return None
 
@@ -674,7 +674,7 @@ def _click_go_icon(context: Context, name_box: object) -> bool:
         # 只有图钉中心还在底栏按钮带以上才允许用放宽阈值命中，压到按钮底下的必须靠滚动处理。
         loose = _match_template(context, roi, _PIN_TEMPLATE, _PIN_THRESHOLD_CLIPPED, img)
         if loose is not None and _box_center_y(loose) < _LIST_FOOTER_TOP:
-            logger.info(
+            logger.debug(
                 "副本挑战：目标卡片贴在列表底边，图钉被压暗，按放宽阈值 {} 命中 ({}, {})。",
                 _PIN_THRESHOLD_CLIPPED,
                 _box_center_x(loose),
@@ -684,7 +684,7 @@ def _click_go_icon(context: Context, name_box: object) -> bool:
     if pin is None:
         logger.warning("副本挑战：目标卡片右侧没认出「前往」图钉（ROI={}），可能被列表边缘裁掉。", roi)
         return False
-    logger.info("副本挑战：点「前往」图钉 ({}, {})。", _box_center_x(pin), _box_center_y(pin))
+    logger.debug("副本挑战：点「前往」图钉 ({}, {})。", _box_center_x(pin), _box_center_y(pin))
     _click_box(context, pin)
     time.sleep(_CLICK_SETTLE + 1.0)
     return True
@@ -741,7 +741,7 @@ def _switch_series(context: Context, series: str) -> bool:
     for step in range(3):
         box = _match_series_popup(context, [(series, template)]).get(series)
         if box is not None:
-            logger.info("副本挑战：在「切换系列」弹窗里点系列「{}」。", series)
+            logger.debug("副本挑战：在「切换系列」弹窗里点系列「{}」。", series)
             _click_box(context, box)
             time.sleep(_CLICK_SETTLE + 0.8)
             return True
@@ -855,12 +855,12 @@ def _select_difficulty(context: Context, expected: list[str]) -> bool:
     if box is not None:
         click_x = _box_center_x(box)
         click_y = _box_center_y(box)
-        logger.info("副本挑战：点难度页签「{}」({}, {})。", matched_text, click_x, click_y)
+        logger.debug("副本挑战：点难度页签「{}」({}, {})。", matched_text, click_x, click_y)
         _click_box(context, box)
     elif not tabs:
         # 单难度副本：整列页签都不存在（不是"OCR 丢字"，是这类副本本身没有可选难度）。
         # 不点任何难度、直接去创建房间；将来版本加了难度，这里会重新扫到页签，走回上面的正常路径。
-        logger.info(
+        logger.debug(
             "副本挑战：详情页没有难度页签（该副本当前只有一个难度），跳过难度选择，直接创建房间。"
             "（任务设置里的难度「{}」对这类副本不生效）",
             expected,
@@ -896,7 +896,7 @@ def _select_difficulty(context: Context, expected: list[str]) -> bool:
             click_y,
         )
         return False
-    logger.info("副本挑战：难度已切到「{}」(y={})。", matched_text or expected, click_y)
+    logger.debug("副本挑战：难度已切到「{}」(y={})。", matched_text or expected, click_y)
     time.sleep(1.0)  # 切难度后页面会刷一次，留一点时间再去找「创建房间」
     return True
 
@@ -924,7 +924,7 @@ def _pick_support_prefs(context: Context) -> bool:
     原样复用。偏好来自 interface.json 的六个全局选项（`X属性编队助战`）。
     """
     prefs = _read_support_prefs(context)
-    logger.info("副本挑战：助战偏好 = {}，开始选择助战。", prefs or "未配置（不校验类型）")
+    logger.debug("副本挑战：助战偏好 = {}，开始选择助战。", prefs or "未配置（不校验类型）")
     support = PickSupport(
         formation_roi=_FORMATION_ANCHOR_ROI,
         formation_text=_FORMATION_ANCHOR_TEXT,
@@ -948,7 +948,7 @@ def _create_room(context: Context) -> bool:
 
     for attempt in range(2):
         if attempt:
-            logger.info("副本挑战：上一次点「创建房间」没反应，重新点一次。")
+            logger.debug("副本挑战：上一次点「创建房间」没反应，重新点一次。")
         _click_box(context, create)
         time.sleep(0.8)  # 等弹窗画出来：点完「创建房间」若暂离位已满，弹窗会盖在这一帧上
         # 「暂离已满」门控（用户需求）：挂机暂离位满了会弹框，本次挑战不会真正开始。
@@ -1001,7 +1001,7 @@ def _start_battle(context: Context) -> bool:
     if start is None:
         logger.error("副本挑战：没等到房间页「开始战斗」，本次放弃（未消耗体力）。")
         return False
-    logger.info("副本挑战：点「开始战斗」（本次开始真实消耗体力/BP）。")
+    logger.debug("副本挑战：点「开始战斗」（本次开始真实消耗体力/BP）。")
     _click_box(context, start)
     time.sleep(_CLICK_SETTLE)
     confirm = _wait_for(context, _DIALOG_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT, 8)
@@ -1095,7 +1095,7 @@ def _apply_support_scope(context: Context, wanted: set[str]) -> None:
             continue
         checked = ratio >= _SCOPE_BLUE_ON
         want = name in wanted
-        logger.info(
+        logger.debug(
             "呼叫支援：「{}」当前{}（blue={:.2f}），期望{}。",
             name,
             "勾选" if checked else "未勾选",
@@ -1125,20 +1125,20 @@ def _open_support_dialog(context: Context) -> bool:
     """点左下角「发送多人支援请求」打开「呼叫支援」弹窗（一次点不开就再点）。"""
     entry = _wait_support_entry(context, 3.0)
     if entry is None:
-        logger.info("副本挑战：战斗左下角没有「发送多人支援请求」按钮，跳过支援请求。")
+        logger.debug("副本挑战：战斗左下角没有「发送多人支援请求」按钮，跳过支援请求。")
         return False
 
     for attempt in range(3):
         _click_box(context, entry)
         time.sleep(1.2)
         if _find_contains(context, _SUPPORT_DIALOG_ROI, _SUPPORT_DIALOG_TEXT) is not None:
-            logger.info("副本挑战：已打开「呼叫支援」弹窗。")
+            logger.debug("副本挑战：已打开「呼叫支援」弹窗。")
             return True
         entry = _wait_support_entry(context, 3.0)
         if entry is None:
             logger.warning("副本挑战：点「发送多人支援请求」后按钮消失、弹窗也没开，放弃发送。")
             return False
-        logger.info("副本挑战：第 {} 次点「发送多人支援请求」没打开弹窗，再点一次。", attempt + 1)
+        logger.debug("副本挑战：第 {} 次点「发送多人支援请求」没打开弹窗，再点一次。", attempt + 1)
     logger.warning("副本挑战：3 次都没打开「呼叫支援」弹窗，放弃发送。")
     return False
 
@@ -1160,9 +1160,9 @@ def _send_support(context: Context) -> bool:
         _click_box(context, send)
         time.sleep(1.2)
         if _find_contains(context, _SUPPORT_DIALOG_ROI, _SUPPORT_DIALOG_TEXT) is None:
-            logger.info("呼叫支援：已发送支援请求。")
+            logger.debug("呼叫支援：已发送支援请求。")
             return True
-        logger.info("呼叫支援：第 {} 次点「发送」后弹窗还在，再点一次。", attempt + 1)
+        logger.debug("呼叫支援：第 {} 次点「发送」后弹窗还在，再点一次。", attempt + 1)
     logger.warning("呼叫支援：点了 2 次「发送」弹窗仍未关闭。")
     return False
 
@@ -1174,10 +1174,10 @@ def _call_support(context: Context) -> bool:
 
     wanted = {name for name, flag in _SUPPORT_SCOPE_FLAGS if _flag_enabled(context, flag)}
     if not wanted:
-        logger.info("副本挑战：开了「发送多人支援请求」但「支援请求范围」一个都没勾，跳过发送。")
+        logger.debug("副本挑战：开了「发送多人支援请求」但「支援请求范围」一个都没勾，跳过发送。")
         return False
 
-    logger.info("副本挑战：发送多人支援请求（范围={}）。", "/".join(sorted(wanted)))
+    logger.debug("副本挑战：发送多人支援请求（范围={}）。", "/".join(sorted(wanted)))
     if not _open_support_dialog(context):
         return False
     _apply_support_scope(context, wanted)
@@ -1287,7 +1287,7 @@ def _fight(
     deadline = time.time() + budget
 
     if not _flag_enabled(context, _SKIP_TURN_FLAG):
-        logger.info("副本挑战：全局「跳过回合」未开启 → 不识别按钮状态、不点任何按钮，只等结算。")
+        logger.debug("副本挑战：全局「跳过回合」未开启 → 不识别按钮状态、不点任何按钮，只等结算。")
         misses = 0
         while time.time() < deadline:
             # 同样是一帧判到底：胜利按钮和「挑战下一关」都在底部带里，
@@ -1296,7 +1296,7 @@ def _fight(
             img = _screencap(context)
             index = _index_on(context, img, _BATTLE_TURN_WIDE_ROI)
             if _pick_exact(index, _WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _WIN_NEXT_STAGE_TEXT) is not None:
-                logger.info("副本挑战：胜利结算已出（未开跳过回合，仅识别）。")
+                logger.debug("副本挑战：胜利结算已出（未开跳过回合，仅识别）。")
                 if win_sink is not None:
                     win_sink.append(index)
                 return True
@@ -1309,7 +1309,8 @@ def _fight(
         logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", budget)
         return False
 
-    logger.info("副本挑战：全局「跳过回合」已开启 → 每帧判按钮 + 胜利结算，认到「跳过回合」立刻点。")
+    # debug：每场战斗都打一遍，对看日志的人没有信息量（客户端控制台只收 INFO 及以上）
+    logger.debug("副本挑战：全局「跳过回合」已开启 → 每帧判按钮 + 胜利结算，认到「跳过回合」立刻点。")
     probe = _BATTLE_TURN_ROI
     misses = 0
     clicks = 0
@@ -1340,7 +1341,7 @@ def _fight(
                 continue
             elif _pick_exact(band, _WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _WIN_NEXT_STAGE_TEXT) is not None:
                 # 底部带里既没有「跳过回合」也没有「回合开始」，却有结算按钮 ⇒ 本场结束
-                logger.info("副本挑战：胜利结算已出（共点「跳过回合」{} 次），立刻接管结算页。", clicks)
+                logger.debug("副本挑战：胜利结算已出（共点「跳过回合」{} 次），立刻接管结算页。", clicks)
                 if win_sink is not None:
                     # 把这一帧的整条索引交给结算逻辑：连「挑战下一关」都省一次识别
                     win_sink.append(band)
@@ -1359,7 +1360,7 @@ def _fight(
         if misses % _BATTLE_RESULT_EVERY == 0:
             result = _battle_result(context, extra_over, img=img, index=band)
             if result is not None:
-                logger.info("副本挑战：战斗结束（共点「跳过回合」{} 次）。", clicks)
+                logger.debug("副本挑战：战斗结束（共点「跳过回合」{} 次）。", clicks)
                 return result
         time.sleep(_BATTLE_FAST_SLEEP)
 
@@ -1395,7 +1396,7 @@ def _settle(context: Context) -> bool:
             or _pick_exact(index, _DIALOG_CONFIRM_TEXT)
         )
         if box is not None:
-            logger.info("副本挑战：结算第 {} 轮，点「继续/确认/确定」。", _round + 1)
+            logger.debug("副本挑战：结算第 {} 轮，点「继续/确认/确定」。", _round + 1)
             index = (
                 _click_settle_once(
                     context,
@@ -1417,9 +1418,9 @@ def _settle(context: Context) -> bool:
             # 否则这一轮会"看着像结算完成"提前返回，下一轮退主页时弹窗还盖着 → 退不出去 →
             # 第二次挑战根本开始不了（实机现象）。
             if _dismiss_friend_request(context, _FRIEND_POPUP_WAIT):
-                logger.info("副本挑战：好友申请已取消，结算完成。")
+                logger.debug("副本挑战：好友申请已取消，结算完成。")
             else:
-                logger.info("副本挑战：结算完成，已回到房间页/主页。")
+                logger.debug("副本挑战：结算完成，已回到房间页/主页。")
             return True
 
         index = {}
@@ -1438,7 +1439,7 @@ def _open_detail_page(context: Context, series: str, keyword: str) -> bool:
     """
     if not _goto_series_page(context):
         return False
-    logger.info("副本挑战：先切到「{}」系列。", series)
+    logger.debug("副本挑战：先切到「{}」系列。", series)
     if not _switch_series(context, series):
         return False
 
@@ -1457,7 +1458,7 @@ def _open_detail_page(context: Context, series: str, keyword: str) -> bool:
                 return False
             return True
         if attempt == 0:
-            logger.info("副本挑战：「{}」卡片贴在列表边缘、图钉不在画面里，把列表推一段再找。", keyword)
+            logger.debug("副本挑战：「{}」卡片贴在列表边缘、图钉不在画面里，把列表推一段再找。", keyword)
             context.tasker.controller.post_swipe(*_LIST_NUDGE_UP, 300).wait()
         else:
             context.tasker.controller.post_swipe(*_LIST_NUDGE_DOWN, 300).wait()

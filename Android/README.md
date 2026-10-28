@@ -29,13 +29,13 @@
 ```powershell
 $env:JAVA_HOME    = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
 $env:ANDROID_HOME = 'D:\Android\Sdk'
-.\Android\build.ps1 -Version 0.1.8
+.\Android\build.ps1 -Version 0.1.9
 ```
 
 默认出双 ABI 通用包。只想出单架构（体积小一半以上）时：
 
 ```powershell
-.\Android\build.ps1 -Version 0.1.8 -Abi arm64-v8a
+.\Android\build.ps1 -Version 0.1.9 -Abi arm64-v8a
 ```
 
 脚本依次做：克隆 MaaFwApp → 覆盖 `Android/overrides/` 里的源码改动 → 铺 MaaFramework `.so` → 组 agent 运行时 → 写 `local.properties` → `assembleRelease`。
@@ -76,7 +76,7 @@ python scripts/build_agent_bundle.py --out <仓库根>/.build/agent-dist `
 sdk.dir=D:/Android/Sdk
 pi.profile=<仓库根>/Android/pi-profile.yaml
 build.releaseAbi=arm64-v8a,x86_64
-build.versionName=0.1.8
+build.versionName=0.1.9
 ```
 
 `build.releaseAbi` 逗号分隔；写多个 ABI 时只出一个通用包（`MAFW_PACKAGE_ABI=universal`），

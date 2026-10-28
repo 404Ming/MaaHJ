@@ -248,7 +248,7 @@ def _goto_alchemy(context: Context) -> bool:
             _click_text(context, lines, ROI_HUB_MENU, (HUB_MENU_TEXT,), (637, 1232))
             time.sleep(1.2)
             continue
-        logger.info("快速炼金：当前不在主页/菜单/合成/炼金页，先返回主页再进。")
+        logger.debug("快速炼金：当前不在主页/菜单/合成/炼金页，先返回主页再进。")
         _return_home(context)
         time.sleep(1.0)
     logger.error("快速炼金：6 步之内没能走到炼金页，放弃本次任务。")
@@ -281,7 +281,7 @@ def _close_reward_popup(context: Context, timeout: float = 18.0) -> bool:
             return False
         hint = _pick(lines, FULL_ROI, *CLOSE_TEXTS)
         if hint is not None:
-            logger.info(f"快速炼金：点「{hint.text}」关闭炼金结果弹窗。")
+            logger.debug(f"快速炼金：点「{hint.text}」关闭炼金结果弹窗。")
             _click(context, _center(hint))
             misses = 0
             empty_hits = 0
@@ -292,13 +292,13 @@ def _close_reward_popup(context: Context, timeout: float = 18.0) -> bool:
         elif _pick(lines, ROI_ALCHEMY_BAR, EMPTY_BAR_TEXT) is not None:
             empty_hits += 1
             if empty_hits >= 2:
-                logger.info("快速炼金：瓶子已清空，回到炼金页。")
+                logger.debug("快速炼金：瓶子已清空，回到炼金页。")
                 return True
         else:
             empty_hits = 0
             misses += 1
             if misses >= 2:
-                logger.info("快速炼金：没认到关闭提示，试点空白处。")
+                logger.debug("快速炼金：没认到关闭提示，试点空白处。")
                 _click(context, POPUP_FALLBACK_POINTS[fallback % len(POPUP_FALLBACK_POINTS)])
                 fallback += 1
                 misses = 0
@@ -338,9 +338,9 @@ def _one_round(context: Context, index: int, total: int) -> str:
         lines = _scan(context)
         _click_text(context, lines, ROI_SORT_DROPDOWN, (SORT_QUANTITY_TEXT,), QUANTITY_OPTION_POINT)
         time.sleep(0.8)
-        logger.info("快速炼金：排序已切到「道具数量」（从多到少）。")
+        logger.debug("快速炼金：排序已切到「道具数量」（从多到少）。")
     else:
-        logger.info("快速炼金：排序已经是「道具数量」，跳过切换。")
+        logger.debug("快速炼金：排序已经是「道具数量」，跳过切换。")
 
     # 一键选择（首字被图标压住，OCR 常只给「键选择」）。
     lines = _scan(context)

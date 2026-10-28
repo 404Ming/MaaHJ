@@ -595,7 +595,7 @@ class ShopSelectionGate(CustomAction):
             logger.info(f"商店购买：{group} 分组没有勾选任何商品，整段跳过（不进入该商店的页签）。")
             return CustomAction.RunResult(success=False)
 
-        logger.info(f"商店购买：{group} 分组已勾选 " + "、".join(item.label for item in selected))
+        logger.debug(f"商店购买：{group} 分组已勾选 " + "、".join(item.label for item in selected))
         return CustomAction.RunResult(success=True)
 
 
@@ -751,7 +751,7 @@ class ShopBuySelected(CustomAction):
             logger.info(f"商店购买：{group} 分组没有勾选任何商品，跳过本页（不做任何点击）。")
             return CustomAction.RunResult(success=True)
 
-        logger.info(f"商店购买：{group} 分组本页要买 " + "、".join(item.label for item in selected))
+        logger.debug(f"商店购买：{group} 分组本页要买 " + "、".join(item.label for item in selected))
         layout = GROUP_LAYOUT[group]
 
         # 折扣礼包页只认第一行（左=1 号位、右=2 号位）。这里先给第一行拍一次快照：
@@ -765,7 +765,7 @@ class ShopBuySelected(CustomAction):
             if not allowed_names:
                 logger.warning("商店购买：折扣礼包页没识别到第一行（1、2 号位）的礼包，本次不买任何礼包。")
                 return CustomAction.RunResult(success=True)
-            logger.info("商店购买：折扣礼包页 1、2 号位 = " + "、".join(sorted(allowed_names)))
+            logger.debug("商店购买：折扣礼包页 1、2 号位 = " + "、".join(sorted(allowed_names)))
 
         bought_labels: list[str] = []
         missed_labels: list[str] = []

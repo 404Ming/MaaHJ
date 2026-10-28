@@ -341,7 +341,7 @@ def _enter_dialog(context: Context) -> bool:
         return True
     if not _on_list_page(context):
         if not _on_hub(context):
-            logger.info("自动挂机：当前不在主页，先返回主页。")
+            logger.debug("自动挂机：当前不在主页，先返回主页。")
             if not _back_to_hub(context):
                 logger.error("自动挂机：回不到主页，本次放弃。")
                 return False
@@ -353,7 +353,7 @@ def _enter_dialog(context: Context) -> bool:
                 return False
         else:
             entry = _find_in(context, _HUB_BATTLE_LIST_ROI, _HUB_BATTLE_LIST_TEXT)
-        logger.info("自动挂机：点主页「战斗列表」。")
+        logger.debug("自动挂机：点主页「战斗列表」。")
         _click_box(context, entry)
         if _wait_text(context, _LIST_TITLE_ROI, _LIST_TITLE_TEXT, _LIST_OPEN_TIMEOUT) is None:
             logger.error("自动挂机：进不去战斗列表页，本次放弃。")
@@ -366,7 +366,7 @@ def _enter_dialog(context: Context) -> bool:
     if button is None:
         logger.error("自动挂机：战斗列表页上没认出「自动挂机」按钮，本次放弃。")
         return False
-    logger.info("自动挂机：点「自动挂机」打开副本选择弹窗。")
+    logger.debug("自动挂机：点「自动挂机」打开副本选择弹窗。")
     _click_box(context, button)
     if _wait_text(context, _DIALOG_TITLE_ROI, _DIALOG_TITLE_TEXT, _DIALOG_OPEN_TIMEOUT) is None:
         logger.error("自动挂机：「选择要挂机的副本」弹窗没出来，本次放弃。")
@@ -547,7 +547,7 @@ def _ensure_expanded(context: Context, series_key: str) -> float | None:
     if _card_rows(context, top):
         return top
 
-    logger.info("自动挂机：展开「{}」系列。", series_key)
+    logger.debug("自动挂机：展开「{}」系列。", series_key)
     _click_box(context, box)
     time.sleep(_CLICK_SETTLE)
 
@@ -565,7 +565,7 @@ def _ensure_expanded(context: Context, series_key: str) -> float | None:
     if box is None:
         logger.warning("自动挂机：「{}」系列滚动后找不到横幅。", series_key)
         return None
-    logger.info("自动挂机：再点一次「{}」横幅（上一下把它收起来了）。", series_key)
+    logger.debug("自动挂机：再点一次「{}」横幅（上一下把它收起来了）。", series_key)
     _click_box(context, box)
     time.sleep(_CLICK_SETTLE)
     top = box_top(box)
@@ -700,7 +700,7 @@ def _close_stuck_modal(context: Context) -> None:
     弹窗就留在屏幕上，于是后面所有横幅点击都打在弹窗后面，整个系列"谁都展开不了"。
     """
     if _find_in(context, _MODAL_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT) is not None:
-        logger.info("自动挂机：发现难度弹窗还开着，先点「确定」关掉。")
+        logger.debug("自动挂机：发现难度弹窗还开着，先点「确定」关掉。")
         _confirm_modal(context)
 
 
@@ -849,16 +849,16 @@ def _process_series(context: Context, selected: dict[str, set[str]], series_name
         rows = _card_rows(context, top)
         _dump_frame(context, f"{series_key}_{_round}_{int(top)}")
         if rows:
-            logger.info("自动挂机：「{}」横幅顶 y={}，识别出卡片行 {}。", series_key, int(top), rows)
+            logger.debug("自动挂机：「{}」横幅顶 y={}，识别出卡片行 {}。", series_key, int(top), rows)
         else:
             rows = [int(top) + _CARD_ROW1_OFFSET + _CARD_ROW_STEP * k for k in range(row_count)]
             # 推算出来的位置要挡一下：别落进下一个系列的横幅（点上去会把人家展开/收起）
             spans = _banner_spans(context)
             rows = [y for y in rows if not any(lo <= y <= hi for lo, hi in spans)]
-            logger.info("自动挂机：「{}」横幅顶 y={}，没认出卡片描边，按版式推算 {}。", series_key, int(top), rows)
+            logger.debug("自动挂机：「{}」横幅顶 y={}，没认出卡片描边，按版式推算 {}。", series_key, int(top), rows)
         usable = [y for y in rows if 140 <= y <= _CARD_SAFE_BOTTOM]
         if len(rows) < row_count or not usable:
-            logger.info(
+            logger.debug(
                 "自动挂机：「{}」只认出 {} 行（应为 {}），金线：{}",
                 series_key,
                 len(rows),
@@ -876,7 +876,7 @@ def _process_series(context: Context, selected: dict[str, set[str]], series_name
                 if opened is None:
                     # 末行不满 3 张、或卡片被按钮条挡了一半，点到空位很常见：直接跳过。
                     # 如果其实是把系列点收起了，下一轮 `_card_rows` 会是空，会重新展开。
-                    logger.info("自动挂机：({},{}) 不是副本卡片（空位/被挡），跳过。", x, y)
+                    logger.debug("自动挂机：({},{}) 不是副本卡片（空位/被挡），跳过。", x, y)
                     continue
                 title, modal_rows = opened
                 dungeon = _identify_dungeon(title, modal_rows)
@@ -889,15 +889,15 @@ def _process_series(context: Context, selected: dict[str, set[str]], series_name
                     _confirm_modal(context)
                     continue
                 if dungeon.title in handled:
-                    logger.info("自动挂机：({},{}) 又是「{}」（已处理过），跳过。", x, y, dungeon.title)
+                    logger.debug("自动挂机：({},{}) 又是「{}」（已处理过），跳过。", x, y, dungeon.title)
                     _confirm_modal(context)
                     continue
                 handled.add(dungeon.title)
                 if dungeon.title not in pending:
-                    logger.info("自动挂机：{} 不在本次要勾选的清单里，跳过。", dungeon.title)
+                    logger.debug("自动挂机：{} 不在本次要勾选的清单里，跳过。", dungeon.title)
                     _confirm_modal(context)
                     continue
-                logger.info(
+                logger.debug(
                     "自动挂机：{} 勾选难度 {}。",
                     dungeon.title,
                     "、".join(sorted(dungeon.labels.get(k, k) for k in selected[dungeon.title])),
@@ -949,13 +949,13 @@ def _apply_selection(context: Context, selected: dict[str, set[str]]) -> bool:
     if reset is None:
         logger.error("自动挂机：弹窗里认不到「重置」，无法清空历史勾选。")
         return False
-    logger.info("自动挂机：点「重置」清空弹窗里已有的勾选。")
+    logger.debug("自动挂机：点「重置」清空弹窗里已有的勾选。")
     _click_box(context, reset)
     time.sleep(_CLICK_SETTLE)
     _scroll_dialog_top(context)
 
     total = sum(len(keys) for keys in selected.values())
-    logger.info(
+    logger.debug(
         "自动挂机：按设置勾选 {} 个难度（{} 个副本）。",
         total,
         len(selected),

@@ -128,7 +128,7 @@ class DailyTaskRowGo(CustomRecognition):
                 continue
             center_y = box[1] + box[3] / 2
             if row_top <= center_y <= row_bottom:
-                logger.info(
+                logger.debug(
                     "DailyTaskRowGo: 命中 {!r}, 行范围 [{}, {}], 前往 box={}",
                     title_pattern,
                     row_top,

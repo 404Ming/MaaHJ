@@ -27,7 +27,11 @@
      失败/复活判定也复用同一帧（见 `_revive_prompt` 与 `dungeon_challenge._battle_result`），
      所以任何一拍的耗时上限 ≈0.35s，胜利页一出现下一拍就能点掉；
   7. 失败（用户要求）：取消复活 → 取消呼叫支援 → 撤退 → 重新点「挑战」；
-  8. 按任务设置次数循环，结束回主页。
+  8. 一轮走不通（卡在认不出的页面 / 找不到「挑战」/ 开不了战 / 战斗超时）时**不再收尾**：
+     先回主页（公共 `BackToMainHub_Start`），回不到就冷重启游戏（`LaunchGame_Start`），
+     再从主页重跑导航段继续挑战，直到「挑战次数」打满（用户 2026-10-28 要求）。
+     连续恢复失败 8 次才放弃；「今日剩余挑战次数 0/0」这种永久失败直接终止；
+  9. 按任务设置次数循环，结束回主页。
 
 实机已确认（2026-10-28，720x1280，MuMu 127.0.0.1:16512）：
   · 主页底部「菜单」(637,1232,55,32) → 菜单页左侧「活」(157,600,44,44) → 活动一览里
@@ -217,6 +221,51 @@ _AD_MAP_ROI = (400, 1185, 300, 95)
 _AD_MAP_TEXTS = ("入侵讨伐", "深入裂隙")
 
 
+# ---- 失败恢复（用户 2026-10-28 要求）--------------------------------------------------
+# 一轮走不通（卡在认不出的页面 / 找不到「挑战」/ 开不了战 / 战斗超时）时**不再收尾**，
+# 而是按「回主页 → 回不到就冷重启 → 从主页重新导航 → 继续挑战」的阶梯恢复，直到打满次数。
+#
+# 主页判据与 `BackToMainHub_AtMainHub` / `LaunchGame_MainHubLoose` **完全同一口径**（惑星之间）：
+# 三处判定必须一致，否则会出现"其实已经回到主页，却以为没回去 → 又冷重启一遍"。
+_HUB_ROI = (0, 1180, 170, 100)
+_HUB_TEXT = "惑星之间"
+# 连续恢复上限：没有它，「今日剩余挑战次数 0/0」「活动已关闭」这类**永久失败**会无限空转。
+# 打完一场就清零，所以它只限制"连续失败"，正常抖动几次完全够用。
+_RECOVER_LIMIT = 8
+# 恢复前要复位的节点：这些节点带 max_hit（单次语义），而 MaaFramework 的命中计数
+# **跨 run_task 累加**（GameplayChallenge_BattleEnterQuick 的注释里记过同一类实机事故）。
+# 不清零，第二次恢复时导航段会被整段跳过，表现就是"回了主页却再也进不去活动页"。
+# 名单 = 终末之战导航段 + 回主页链 / 启动链里会被反复用到、且带 max_hit 的节点。
+_RESET_NODES = (
+    "FinalBattle_OpenMenu",
+    "FinalBattle_OpenActivity",
+    "FinalBattle_OpenEventCard",
+    "FinalBattle_Invade",
+    "BackToMainHub_StopIdle",
+    "BackToMainHub_BattleFailedExit",
+    "BackToMainHub_BattleMenu",
+    "BackToMainHub_BattleRetreat",
+    "BackToMainHub_BattleRetreatConfirm",
+    "BackToMainHub_Back",
+    "BackToMainHub_BackBlind",
+    "BackToMainHub_GameNotRunning",
+    "LaunchGame_Login",
+    "LaunchGame_WaitLogin",
+    "LaunchGame_LoginUpdatePopup",
+    "LaunchGame_LoginUpdateConfirm",
+    "LaunchGame_UpdateError",
+    "LaunchGame_UpdateErrorConfirm",
+)
+
+
+class _NoAttemptLeft(RuntimeError):
+    """该难度「今日剩余挑战次数 0/0」：本轮和后续轮次都不可能成功，必须立刻终止循环。
+
+    ⚠️ 不能只让 `_create_room` 返回 False：外层会把"这一轮没打成"当成可恢复失败，
+    回主页重来最多 8 次，每次都白跑一整圈导航 + 寻路。这种永久失败必须短路。
+    """
+
+
 # ---- 任务设置读取 ----------------------------------------------------------------
 def _read_target(context: Context) -> str:
     """读任务设置「挑战副本」的值（写在本任务选项载体节点的 expected[0]）。"""
@@ -266,7 +315,7 @@ def _hold_walk(context: Context, direction: str, seconds: float) -> None:
     dx, dy = _DIR_OFFSETS[direction]
     cx, cy = _JOY_CENTER
     controller = context.tasker.controller
-    logger.info("终末之战：摇杆 {} 方向按住 {:.1f}s。", direction, seconds)
+    logger.debug("终末之战：摇杆 {} 方向按住 {:.1f}s。", direction, seconds)
 
     try:
         controller.post_touch_down(cx, cy).wait()
@@ -314,14 +363,14 @@ def _walk_to_challenge(context: Context, target: str) -> bool:
     for direction, seconds in plan:
         _hold_walk(context, direction, seconds)
         if _find_challenge(context) is not None:
-            logger.info("终末之战：走完 {} 段后已看到「挑战」按钮。", direction)
+            logger.debug("终末之战：走完 {} 段后已看到「挑战」按钮。", direction)
             return True
 
     extra = plan[-1] if plan else ("up", 2.0)
     for index in range(_CHALLENGE_RETRY):
         if index == 0:
             time.sleep(_MAP_LOAD_GRACE)
-        logger.info("终末之战：还没看到「挑战」，沿 {} 再走一段（第 {} 段）。", extra[0], index + 1)
+        logger.debug("终末之战：还没看到「挑战」，沿 {} 再走一段（第 {} 段）。", extra[0], index + 1)
         _hold_walk(context, extra[0], _CHALLENGE_EXTRA_SECONDS)
         if _find_challenge(context) is not None:
             return True
@@ -366,19 +415,19 @@ def _select_difficulty(context: Context, target: str) -> bool:
             or _find_contains(context, _DIFFICULTY_ROI, _HARD_TAB_TEXT)
         )
         if hard is None:
-            logger.info("终末之战：难度页没有「困难」页签（普通/困难由走位区分），按当前页选难度。")
+            logger.debug("终末之战：难度页没有「困难」页签（普通/困难由走位区分），按当前页选难度。")
         else:
-            logger.info("终末之战：点「困难」页签 ({}, {})。", _box_center_x(hard), hard[1] + hard[3] // 2)
+            logger.debug("终末之战：点「困难」页签 ({}, {})。", _box_center_x(hard), hard[1] + hard[3] // 2)
             _click_box(context, hard)
             time.sleep(1.2)
 
     tabs = _difficulty_tabs(context, _DIFFICULTY_TAB_ROI) or _difficulty_tabs(context, _DIFFICULTY_ROI)
     if not tabs:
-        logger.info("终末之战：难度页没有「难度N」页签（该副本当前只有一个难度），跳过难度选择。")
+        logger.debug("终末之战：难度页没有「难度N」页签（该副本当前只有一个难度），跳过难度选择。")
         return True
     for number, box in tabs:
         if number == wanted:
-            logger.info("终末之战：点难度「难度{}」({}, {})。", wanted, _box_center_x(box), box[1] + box[3] // 2)
+            logger.debug("终末之战：点难度「难度{}」({}, {})。", wanted, _box_center_x(box), box[1] + box[3] // 2)
             _click_box(context, box)
             time.sleep(1.2)
             return True
@@ -392,10 +441,13 @@ def _select_difficulty(context: Context, target: str) -> bool:
 
 # ---- 进入战斗 --------------------------------------------------------------------
 def _create_room(context: Context) -> bool:
-    """终末使徒系列：「创建房间」→ 助战选择 → 编队「确定」→ 房间「开始战斗」→ 确定。"""
+    """终末使徒系列：「创建房间」→ 助战选择 → 编队「确定」→ 房间「开始战斗」→ 确定。
+
+    ⚠️ 挑战次数 0/0 时抛 `_NoAttemptLeft`（不是返回 False）：这是永久失败，
+    交给恢复阶梯重试只会白跑 8 圈。
+    """
     if _find_contains(context, _ATTEMPT_ROI, _NO_ATTEMPT_TEXT) is not None:
-        logger.error("终末之战：该难度「今日剩余挑战次数 0/0」（未开放或无次数），本次不创建房间。")
-        return False
+        raise _NoAttemptLeft("该难度「今日剩余挑战次数 0/0」（未开放或无次数）")
 
     create = _wait_for(context, _CREATE_ROOM_ROI, _CREATE_ROOM_TEXT, 10)
     if create is None:
@@ -404,7 +456,7 @@ def _create_room(context: Context) -> bool:
         logger.error("终末之战：挑战页没等到「创建房间」按钮，本次放弃（未开始战斗）。")
         return False
 
-    logger.info("终末之战：点「创建房间」。")
+    logger.debug("终末之战：点「创建房间」。")
     _click_box(context, create)
     time.sleep(0.8)
     if handle_away_full(context):
@@ -435,7 +487,7 @@ def _create_room(context: Context) -> bool:
         logger.error("终末之战：点编队「确定」后没进到房间页「开始战斗」，进入公共异常处理流程。")
         context.run_task("Exception_Start")
         return False
-    logger.info("终末之战：点房间页「开始战斗」。")
+    logger.debug("终末之战：点房间页「开始战斗」。")
     _click_box(context, start)
     time.sleep(1.5)
     confirm_start = _wait_for(context, _GOD_START_CONFIRM_ROI, _GOD_START_CONFIRM_TEXT, 8)
@@ -459,7 +511,7 @@ def _enter_plain_battle(context: Context) -> bool:
     deadline = time.time() + _ENTER_TIMEOUT
     while time.time() < deadline:
         if _find_in(context, _SUPPORT_TITLE_ROI, _SUPPORT_TITLE_TEXT) is not None:
-            logger.info("终末之战：进入「助战选择」，按全局偏好选择助战。")
+            logger.debug("终末之战：进入「助战选择」，按全局偏好选择助战。")
             # 实测（2026-10-28）：幼年体/成年体的编队页底部是「确定」(325,1025,73,41)，
             # 不是玩法挑战的「开始战斗」；锚点必须跟着换，否则 PickSupport 永远认不出编队页。
             support = PickSupport(
@@ -483,7 +535,7 @@ def _enter_plain_battle(context: Context) -> bool:
             start = _find_in(context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT)
             start_text = _GOD_FORMATION_CONFIRM_TEXT
         if start is not None:
-            logger.info("终末之战：点「{}」进入战斗。", start_text)
+            logger.debug("终末之战：点「{}」进入战斗。", start_text)
             _click_box(context, start)
             time.sleep(1.5)
             confirm = _wait_for(context, _GOD_START_CONFIRM_ROI, _GOD_START_CONFIRM_TEXT, 6)
@@ -499,7 +551,7 @@ def _enter_plain_battle(context: Context) -> bool:
             return True
 
         if _wait_for_battle_presence(context, 0.5):
-            logger.info("终末之战：已直接进入战斗。")
+            logger.debug("终末之战：已直接进入战斗。")
             return True
         time.sleep(0.5)
 
@@ -520,9 +572,9 @@ def _open_challenge_detail(context: Context, target: str) -> bool:
     if box is None:
         box = _wait_for(context, _CHALLENGE_COPY_WIDE_ROI, _CHALLENGE_COPY_TEXT, 4)
     if box is None:
-        logger.info("终末之战：没有「{}」按钮（终末使徒走难度/创建房间），跳过详情页。", _CHALLENGE_COPY_TEXT)
+        logger.debug("终末之战：没有「{}」按钮（终末使徒走难度/创建房间），跳过详情页。", _CHALLENGE_COPY_TEXT)
         return False
-    logger.info("终末之战：详情页点「{}」({}, {})。", _CHALLENGE_COPY_TEXT, _box_center_x(box), box[1] + box[3] // 2)
+    logger.debug("终末之战：详情页点「{}」({}, {})。", _CHALLENGE_COPY_TEXT, _box_center_x(box), box[1] + box[3] // 2)
     _click_box(context, box)
     time.sleep(2.0)
     return True
@@ -579,12 +631,12 @@ def _refill_stamina(context: Context, *, wait: float = 3.0) -> bool:
     """
     # 弹窗有开启动画（实测 1s 左右才完全展开），所以标题要**等**而不是只看一眼。
     if _wait_for(context, _STAMINA_TITLE_ROI, _STAMINA_TITLE_TEXT, wait) is not None:
-        logger.info("终末之战：体力不足弹出「补充体力」，按全局体力药设置补一次。")
+        logger.debug("终末之战：体力不足弹出「补充体力」，按全局体力药设置补一次。")
         context.run_task("StaminaRefill_Dialog")
         time.sleep(1.5)
         return True
     if _find_contains(context, _ENERGY_TITLE_ROI, _ENERGY_TITLE_TEXT) is not None:
-        logger.info("终末之战：精力不足弹出「补充精力」，按全局精力补给设置补一次。")
+        logger.debug("终末之战：精力不足弹出「补充精力」，按全局精力补给设置补一次。")
         context.run_task("EnergyRefill_Dialog")
         time.sleep(1.5)
         return True
@@ -602,9 +654,9 @@ def _ensure_battle_started(context: Context, start_roi, start_text: str) -> None
             return
         button = _find_in(context, start_roi, start_text) or _find_contains(context, start_roi, start_text)
         if button is None:
-            logger.info("终末之战：补完体力后没再看到「{}」，按已开战处理。", start_text)
+            logger.debug("终末之战：补完体力后没再看到「{}」，按已开战处理。", start_text)
             return
-        logger.info("终末之战：补完体力，重新点「{}」开战。", start_text)
+        logger.debug("终末之战：补完体力，重新点「{}」开战。", start_text)
         _click_box(context, button)
         time.sleep(1.5)
         confirm = _wait_for(context, _GOD_START_CONFIRM_ROI, _GOD_START_CONFIRM_TEXT, 6)
@@ -624,7 +676,7 @@ def _click_next_stage(context: Context, box) -> None:
     点完不再固定睡 1.5s：那一觉既没看清屏幕、又把"立刻开打"的可能性等掉了；
     现在直接接「补充体力/精力」的有界等待（2s），没弹窗就立刻交回主线去看战斗画面。
     """
-    logger.info("终末之战：结算页点「{}」，直接进下一场。", _NEXT_STAGE_TEXT)
+    logger.debug("终末之战：结算页点「{}」，直接进下一场。", _NEXT_STAGE_TEXT)
     _click_box(context, box)
 
     for _attempt in range(_REFILL_RETRY):
@@ -632,9 +684,9 @@ def _click_next_stage(context: Context, box) -> None:
             return
         retry = _find_next_stage(context)
         if retry is None:
-            logger.info("终末之战：补完体力后没再看到「{}」，按已进入下一场处理。", _NEXT_STAGE_TEXT)
+            logger.debug("终末之战：补完体力后没再看到「{}」，按已进入下一场处理。", _NEXT_STAGE_TEXT)
             return
-        logger.info("终末之战：补完体力，重新点「{}」把这一场开起来。", _NEXT_STAGE_TEXT)
+        logger.debug("终末之战：补完体力，重新点「{}」把这一场开起来。", _NEXT_STAGE_TEXT)
         _click_box(context, retry)
     logger.warning("终末之战：连续补了 {} 次体力仍停在结算页，交回主线继续。", _REFILL_RETRY)
 
@@ -688,7 +740,8 @@ def _claim_rewards(
             or _pick_exact(index, _RESULT_CONFIRM_TEXT)
         )
         if box is not None:
-            logger.info("终末之战：结算第 {} 轮，点「继续/确认/确定」。", _round + 1)
+            # debug：结算屏一屏一条，正常一场 2~4 条，属于过程噪声（控制台只收 INFO 及以上）
+            logger.debug("终末之战：结算第 {} 轮，点「继续/确认/确定」。", _round + 1)
             # 点完按帧等到「按钮消失/挪位」= 画面已切；切屏那一帧的索引直接给下一轮复用，
             # 不用再补一帧。旧版是点完固定睡 1.2s 再看，每屏都白等一次。
             index = (
@@ -711,7 +764,7 @@ def _claim_rewards(
     # 实测（2026-10-28）：清剿地图里结算页停留几秒后会**自动开下一场**，
     # 这时已经不是"回地图"而是"又进战斗"，必须按 next 处理，否则会去地图上白找「挑战」。
     if _wait_for_battle_presence(context, 1.5):
-        logger.info("终末之战：结算后游戏自动续战，已进入下一场战斗。")
+        logger.debug("终末之战：结算后游戏自动续战，已进入下一场战斗。")
         return "next"
 
     # 收尾：好友申请框 / 剩余结算屏交给副本挑战已验证的 _settle（只点取消）。
@@ -756,7 +809,7 @@ def _cancel_revive(context: Context) -> bool:
     if cancel is None:
         logger.warning("终末之战：看到「复活」提示但认不到「取消」，不盲点。")
         return False
-    logger.info("终末之战：战斗失败，点「取消」不复活。")
+    logger.debug("终末之战：战斗失败，点「取消」不复活。")
     _click_box(context, cancel)
     time.sleep(1.5)
     return True
@@ -772,7 +825,7 @@ def _cancel_support_call(context: Context) -> bool:
     if cancel is None:
         logger.warning("终末之战：看到「呼叫支援」弹窗但认不到「取消」，不盲点。")
         return False
-    logger.info("终末之战：关闭「呼叫支援」弹窗（点取消）。")
+    logger.debug("终末之战：关闭「呼叫支援」弹窗（点取消）。")
     _click_box(context, cancel)
     time.sleep(1.2)
     return True
@@ -785,7 +838,7 @@ def _retreat(context: Context) -> bool:
     )
     if box is None:
         return False
-    logger.info("终末之战：点「撤退」退出本场战斗。")
+    logger.debug("终末之战：点「撤退」退出本场战斗。")
     _click_box(context, box)
     time.sleep(1.5)
     confirm = _find_in(context, _RESULT_CONFIRM_ROI, _RESULT_CONFIRM_TEXT) or _find_contains(
@@ -817,6 +870,106 @@ def _defeat_flow(context: Context) -> bool:
     return False
 
 
+# ---- 失败恢复（回主页 / 冷重启 / 重新进图）---------------------------------------------
+def _on_hub(context: Context) -> bool:
+    """是否停在主页（「惑星之间」，与 BackToMainHub / LaunchGame 同一口径）。"""
+    return _find_in(context, _HUB_ROI, _HUB_TEXT) is not None
+
+
+def _reset_hit_counts(context: Context) -> None:
+    """复位带 max_hit 的节点命中计数（跨 run_task 累加，恢复前必须清零）。"""
+    cleared = 0
+    for name in _RESET_NODES:
+        try:
+            if context.clear_hit_count(name):
+                cleared += 1
+        except Exception as error:  # noqa: BLE001  复位失败不该打断恢复
+            logger.warning("终末之战：复位 {} 的命中计数失败（忽略）：{}", name, error)
+    logger.debug("终末之战：恢复前复位命中计数（{}/{} 个节点）。", cleared, len(_RESET_NODES))
+
+
+def _task_completed(detail: Any, names: set[str]) -> bool:
+    """`run_task` 的结果里，某个节点是否**真的执行完成**过。
+
+    ⚠️ 不能用 `detail.nodes` 非空、或"节点名出现过"判断：任务详情里同样会带
+    **尝试过但识别失败**的节点（调试面板上的红叉），只看名字会把"没点到入口"误判成已进图。
+    """
+    for node in getattr(detail, "nodes", None) or []:
+        if getattr(node, "name", None) in names and getattr(node, "completed", False):
+            return True
+    return False
+
+
+def _back_to_hub(context: Context) -> bool:
+    """回主页：先走公共「返回主页」链，回不到再冷重启游戏。
+
+    两条链都是既有实现，恢复逻辑**不重写**任何返回/重启细节：
+      · `BackToMainHub_Start`：轻动作优先（关弹窗 → 战斗撤退 → 逐级返回），末位自己也会落到启动流程；
+      · `LaunchGame_Start`：**不在主页就 StopApp → 等 5s → StartApp**（= 用户说的"重启"）。
+    """
+    logger.info("终末之战：恢复①——回主页（公共返回主页链）。")
+    context.run_task("BackToMainHub_Start")
+    if _on_hub(context):
+        return True
+    logger.warning("终末之战：返回主页链没能带回主页，改走冷重启（停进程 → 重开 → 登录）。")
+    context.run_task("LaunchGame_Start")
+    if _on_hub(context):
+        return True
+    logger.error("终末之战：冷重启后仍未回到主页。")
+    return False
+
+
+def _reenter_from_hub(context: Context) -> bool:
+    """从主页重跑导航段（菜单 → 活动 → 活动一览 → 终末之战 → 底部地图入口）。
+
+    ⚠️ 必须带 override 关掉 `FinalBattle_Fight`：那是本 CustomAction 自己的节点，
+    不关就会在恢复过程中**递归**再跑一整轮循环，挑战次数会被重复计算。
+    判定只看 `FinalBattle_Invade` 是否执行完成（= 真的点到了地图入口），
+    之后由调用方按"刚进地图"的语义等角色寻路。
+    """
+    logger.info("终末之战：恢复②——从主页重新导航到活动地图。")
+    detail = context.run_task("FinalBattle_Flow", {"FinalBattle_Fight": {"enabled": False}})
+    if _task_completed(detail, {"FinalBattle_Invade"}):
+        logger.debug("终末之战：已重新点开地图入口。")
+        return True
+    logger.warning("终末之战：重新导航没走到地图入口（没点到「入侵讨伐 / 深入裂隙」）。")
+    return False
+
+
+def _recover(context: Context) -> str:
+    """本轮卡住/失败后的恢复，返回恢复方式；空字符串 = 恢复失败、调用方应停止。
+
+    返回值：
+      "map"  人还在图上且看得到「挑战」→ 直接重试本场（**没有**重新点地图入口，不必再等寻路）；
+      "nav"  已回主页并重新点开地图入口 → 调用方要按"刚进地图"等一次角色寻路。
+
+    阶梯：
+      0) 复位 max_hit 计数（否则重跑导航段会被整段跳过）；
+      1) 如果此刻就看得到「挑战」，直接重试本场，省掉一整圈导航；
+      2) 回主页（软返回 → 回不到就冷重启）；
+      3) 从主页重跑导航段；
+      4) 导航段也走不通 → 冷重启后再导航一次（活动页卡死只有重启能救）。
+    """
+    _reset_hit_counts(context)
+    if _find_challenge(context) is not None:
+        logger.debug("终末之战：还在地图上且看得到「挑战」，直接重试本场（不回主页）。")
+        return "map"
+    if not _back_to_hub(context):
+        return ""
+    if _reenter_from_hub(context):
+        return "nav"
+    # 人已经在主页，导航段却走不通（活动页/卡片加载异常最典型）：只有重启能救回来。
+    # 这里再做一次「冷重启 → 回主页 → 重新导航」，仍失败才交给调用方收尾。
+    logger.warning("终末之战：在主页重新导航失败，冷重启后再试一次。")
+    _reset_hit_counts(context)
+    context.run_task("LaunchGame_Start")
+    if not _on_hub(context):
+        return ""
+    if _reenter_from_hub(context):
+        return "nav"
+    return ""
+
+
 # ---- 单次挑战 --------------------------------------------------------------------
 def _run_once(
     context: Context, target: str, *, first_entry: bool, allow_next: bool = True
@@ -829,11 +982,12 @@ def _run_once(
       "next"   胜利，且结算页用「挑战下一关」直接开了下一场；
       "done"   胜利并结算完，已回到地图；
       "defeat" 战斗失败且已撤退回地图（调用方按用户要求重新点「挑战」再打）；
-      "fail"   连挑战都开不起来（认不到挑战/难度/创建房间），本轮放弃。
+      "fail"   连挑战都开不起来（认不到挑战/难度/创建房间），本轮作废，由调用方走恢复阶梯。
+               不在这里恢复：恢复要回主页/重启，属于整轮级别的动作，放在 `run()` 的循环里更清楚。
     """
     if first_entry:
         wait = _settle_after_invade(target)
-        logger.info("终末之战：等待角色自己寻路 {:.0f}s。", wait)
+        logger.debug("终末之战：等待角色自己寻路 {:.0f}s。", wait)
         time.sleep(wait)
         if handle_away_full(context):
             logger.warning("终末之战：出现「暂离已满」，本次放弃。")
@@ -841,7 +995,7 @@ def _run_once(
 
     if _wait_for_battle_presence(context, 1.0):
         # 上一场结算后游戏自动续战：人已经在战斗里，再去找「挑战」/拖摇杆只会把流程带偏
-        logger.info("终末之战：当前已在战斗中，直接推进本场。")
+        logger.debug("终末之战：当前已在战斗中，直接推进本场。")
     else:
         if _find_challenge(context) is None and not _walk_to_challenge(context, target):
             return "fail"
@@ -849,7 +1003,7 @@ def _run_once(
         challenge = _find_challenge(context)
         if challenge is None:
             return "fail"
-        logger.info("终末之战：点「挑战」({}, {})。", _box_center_x(challenge), challenge[1] + challenge[3] // 2)
+        logger.debug("终末之战：点「挑战」({}, {})。", _box_center_x(challenge), challenge[1] + challenge[3] // 2)
         _click_box(context, challenge)
         time.sleep(2.0)
 
@@ -871,7 +1025,12 @@ def _run_once(
 
 @AgentServer.custom_action("FinalBattleRun")
 class FinalBattleRun(CustomAction):
-    """终末之战：按任务设置的地图寻路 + 挑战 + 战斗，循环「挑战次数」轮。"""
+    """终末之战：按任务设置的地图寻路 + 挑战 + 战斗，循环「挑战次数」轮。
+
+    某一轮没能打成（卡页 / 找不到挑战 / 开不了战 / 战斗超时）时走 `_recover()`：
+    回主页 → 必要时冷重启 → 从主页重新导航进图，然后继续本循环，直到 `done == times`。
+    只有三种情况会提前结束：收到停止请求、连续恢复达上限、以及「0/0 无次数」这种永久失败。
+    """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
         try:
@@ -885,6 +1044,7 @@ class FinalBattleRun(CustomAction):
         logger.info("终末之战开始：副本={}，计划 {} 次。", target, times)
 
         done = 0
+        recoveries = 0  # 连续恢复次数（打完一场就清零）
         first_entry = True  # 只有刚点完「入侵讨伐」那一次需要等角色寻路
         in_next_battle = False  # 上一场用「挑战下一关」直接开下一局，不用再走地图
         while done < times:
@@ -911,19 +1071,26 @@ class FinalBattleRun(CustomAction):
                         == "next"
                     )
                     done += 1
+                    recoveries = 0
                     logger.info("终末之战：第 {}/{} 次完成（挑战下一关）。", done, times)
                     continue
                 logger.warning("终末之战：「挑战下一关」没有真正开起战斗，退回地图流程重新点「挑战」。")
 
             logger.info("终末之战：第 {}/{} 次开始。", done + 1, times)
             outcome = "fail"
+            fatal = ""
             for retry in range(_DEFEAT_RETRY + 1):
-                outcome = _run_once(
-                    context,
-                    target,
-                    first_entry=first_entry,
-                    allow_next=done + 1 < times,
-                )
+                try:
+                    outcome = _run_once(
+                        context,
+                        target,
+                        first_entry=first_entry,
+                        allow_next=done + 1 < times,
+                    )
+                except _NoAttemptLeft as error:
+                    # 永久失败（0/0 无次数）：恢复阶梯帮不上忙，直接收手
+                    fatal = str(error)
+                    break
                 first_entry = False
                 if outcome != "defeat":
                     break
@@ -934,15 +1101,43 @@ class FinalBattleRun(CustomAction):
                     _DEFEAT_RETRY,
                 )
                 if not _on_ad_map(context):
-                    logger.warning("终末之战：撤退后没回到地图，停止后续挑战。")
+                    logger.warning("终末之战：撤退后没回到地图，交给恢复阶梯重新进图。")
                     outcome = "fail"
                     break
 
-            if outcome == "fail":
-                logger.warning("终末之战：第 {} 次没能完成，停止后续挑战。", done + 1)
+            if fatal:
+                logger.error("终末之战：{}，停止后续挑战（已完成 {}/{}）。", fatal, done, times)
                 break
+
+            if outcome == "fail":
+                # 用户要求（2026-10-28）：一轮走不通不再直接收尾，而是回主页 / 冷重启后
+                # 从主页重新进图继续挑战，直到打满「挑战次数」。
+                recoveries += 1
+                if recoveries > _RECOVER_LIMIT:
+                    logger.error(
+                        "终末之战：第 {} 次连续恢复失败，已达上限 {} 次，停止后续挑战（已完成 {}/{}）。",
+                        recoveries,
+                        _RECOVER_LIMIT,
+                        done,
+                        times,
+                    )
+                    break
+                logger.warning(
+                    "终末之战：第 {} 次没能完成，开始第 {} 次恢复（连续恢复上限 {} 次）。",
+                    done + 1,
+                    recoveries,
+                    _RECOVER_LIMIT,
+                )
+                recovered = _recover(context)
+                if not recovered:
+                    logger.error("终末之战：恢复失败，停止后续挑战（已完成 {}/{}）。", done, times)
+                    break
+                # 只有"重新点开了地图入口"才需要等一次角色寻路；本来就在图上就别白等
+                first_entry = recovered == "nav"
+                continue
             in_next_battle = outcome == "next"
             done += 1
+            recoveries = 0
             logger.info("终末之战：第 {}/{} 次完成。", done, times)
 
         logger.info("终末之战结束，共完成 {}/{} 次。", done, times)

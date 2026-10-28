@@ -302,21 +302,21 @@ def _goto_battle_list(context: Context) -> bool:
             return True
     state = _wait_screen_settled(context, _SCREEN_SETTLE_TIMEOUT)
     if state == "battle":
-        logger.info("主动战斗：当前在战斗里，先把这一场打完再回战斗列表。")
+        logger.debug("主动战斗：当前在战斗里，先把这一场打完再回战斗列表。")
         _fight(context, timeout=_SUPPORT_BATTLE_TIMEOUT)
         _settle_battle(context, claim_chest=_flag_enabled(context, _CHEST_FLAG))
         state = _wait_screen_settled(context, _SCREEN_SETTLE_TIMEOUT)
     elif state == "settle":
-        logger.info("主动战斗：当前停在结算屏，先结算完再回战斗列表。")
+        logger.debug("主动战斗：当前停在结算屏，先结算完再回战斗列表。")
         _settle_battle(context, claim_chest=_flag_enabled(context, _CHEST_FLAG))
         state = _wait_screen_settled(context, _SCREEN_SETTLE_TIMEOUT)
     if state == "list" or _at_battle_list(context):
         return True
 
     if not _on_hub(context):
-        logger.info("主动战斗：当前不在主页，先返回主页。")
+        logger.debug("主动战斗：当前不在主页，先返回主页。")
         if not _back_to_hub(context):
-            logger.info("主动战斗：常规返回没到主页，调用「返回主页」任务兜底。")
+            logger.debug("主动战斗：常规返回没到主页，调用「返回主页」任务兜底。")
             context.run_task("BackToMainHub_Start")
         if not _on_hub(context):
             logger.error("主动战斗：回不到主页，本次放弃。")
@@ -327,7 +327,7 @@ def _goto_battle_list(context: Context) -> bool:
     if entry is None:
         logger.error("主动战斗：主页上没认出「战斗列表」按钮，本次放弃。")
         return False
-    logger.info("主动战斗：点主页「战斗列表」。")
+    logger.debug("主动战斗：点主页「战斗列表」。")
     _click_box(context, entry)
     if _wait_text_in(context, _LIST_TITLE_ROI, _LIST_TITLE_TEXT, _LIST_OPEN_TIMEOUT) is None:
         logger.error("主动战斗：进不去战斗列表页，本次放弃。")
@@ -347,7 +347,7 @@ def _open_filter_dialog(context: Context) -> bool:
         return False
     for attempt in range(2):
         if attempt:
-            logger.info("主动战斗：上一次点「支援筛选」没弹出设定框，再点一次。")
+            logger.debug("主动战斗：上一次点「支援筛选」没弹出设定框，再点一次。")
             box = _match_template(context, _FUNNEL_ROI, _FUNNEL_TEMPLATE, _FUNNEL_THRESHOLD) or box
         _click_box(context, box)
         if _wait_text_in(context, _FILTER_TITLE_ROI, _FILTER_TITLE_TEXT, _FILTER_OPEN_TIMEOUT) is not None:
@@ -362,7 +362,7 @@ def _apply_filter(context: Context, selected: dict[str, set[str]]) -> bool:
     if not _open_filter_dialog(context):
         return False
     total = sum(len(keys) for keys in selected.values())
-    logger.info("主动战斗：按设置重设支援筛选（{} 个副本、{} 个难度）。", len(selected), total)
+    logger.debug("主动战斗：按设置重设支援筛选（{} 个副本、{} 个难度）。", len(selected), total)
     if not _apply_selection(context, selected):
         return False
     if not _confirm_filter_dialog(context):
@@ -371,7 +371,7 @@ def _apply_filter(context: Context, selected: dict[str, set[str]]) -> bool:
         logger.warning("主动战斗：点完「确定」筛选弹窗还在，再点一次。")
         _confirm_filter_dialog(context)
         time.sleep(_CLICK_SETTLE)
-    logger.info("主动战斗：支援筛选已按设置更新。")
+    logger.debug("主动战斗：支援筛选已按设置更新。")
     return True
 
 
@@ -395,7 +395,7 @@ def _ensure_only_filtered(context: Context) -> bool:
     """确保「仅显示筛选」开着（否则列表会把没筛选的战斗也列出来）。"""
     state = _only_filtered_on(context)
     if state is True:
-        logger.info("主动战斗：「仅显示筛选」已是开启状态。")
+        logger.debug("主动战斗：「仅显示筛选」已是开启状态。")
         return True
     if state is None:
         logger.warning("主动战斗：读不到「仅显示筛选」开关状态，按需要点一次。")
@@ -406,7 +406,7 @@ def _ensure_only_filtered(context: Context) -> bool:
     _click_at(context, _ONLY_FILTER_TOGGLE[0], _ONLY_FILTER_TOGGLE[1])
     time.sleep(_CLICK_SETTLE)
     if _only_filtered_on(context) is True:
-        logger.info("主动战斗：已打开「仅显示筛选」。")
+        logger.debug("主动战斗：已打开「仅显示筛选」。")
         return True
     logger.error("主动战斗：点过开关后「仅显示筛选」仍未开启，列表可能包含未筛选的战斗。")
     return False
@@ -417,10 +417,10 @@ def _refresh(context: Context) -> bool:
     """点工具栏最右的刷新按钮（模板匹配；认不到退实测点位）。"""
     box = _match_template(context, _REFRESH_ROI, _REFRESH_TEMPLATE, _REFRESH_THRESHOLD)
     if box is None:
-        logger.info("主动战斗：模板没认到刷新按钮，按实测点位 {} 点一次。", _REFRESH_POINT)
+        logger.debug("主动战斗：模板没认到刷新按钮，按实测点位 {} 点一次。", _REFRESH_POINT)
         _click_at(context, _REFRESH_POINT[0], _REFRESH_POINT[1])
     else:
-        logger.info("主动战斗：点刷新（{},{}）。", _box_center_x(box), _box_center_y(box))
+        logger.debug("主动战斗：点刷新（{},{}）。", _box_center_x(box), _box_center_y(box))
         _click_box(context, box)
     time.sleep(_REFRESH_SETTLE)
     return _at_battle_list(context)
@@ -541,12 +541,12 @@ def _pick_entry(context: Context, selected: dict[str, set[str]], more_first: boo
     entries = _read_entries(context)
     if not entries:
         if _list_empty(context):
-            logger.info("主动战斗：列表显示「暂无可支援的战斗」。")
+            logger.debug("主动战斗：列表显示「暂无可支援的战斗」。")
         else:
-            logger.info("主动战斗：这一屏没读到可点的战斗条目。")
+            logger.debug("主动战斗：这一屏没读到可点的战斗条目。")
         return None
     for entry in entries:
-        logger.info(
+        logger.debug(
             "主动战斗：候选 y={} 血量={:.0%} 人数={} 名字={!r}",
             entry.bar_y,
             entry.hp_ratio,
@@ -560,10 +560,10 @@ def _pick_entry(context: Context, selected: dict[str, set[str]], more_first: boo
         wanted = entries
     pool = [entry for entry in wanted if not entry.full]
     if not pool:
-        logger.info("主动战斗：这一屏 {} 场都满员了（参与人数=上限），跳过。", len(wanted))
+        logger.debug("主动战斗：这一屏 {} 场都满员了（参与人数=上限），跳过。", len(wanted))
         return None
     chosen = max(pool, key=lambda item: item.hp_ratio) if more_first else min(pool, key=lambda item: item.hp_ratio)
-    logger.info(
+    logger.debug(
         "主动战斗：按「优先进血量{}」选中 y={}（血量={:.0%}，{}）。",
         "多" if more_first else "少",
         chosen.bar_y,
@@ -620,13 +620,13 @@ def _stop_idle(context: Context) -> bool:
     for attempt in range(1, _STOP_IDLE_RETRIES + 1):
         stop = _idle_stop_button(context)
         if stop is not None:
-            logger.info("主动战斗：检测到正在挂机，点「停止挂机」取消挂机。")
+            logger.debug("主动战斗：检测到正在挂机，点「停止挂机」取消挂机。")
             _click_box(context, stop)
             clicked = True
             break
         button = _settle_button(context)
         if button is not None:
-            logger.info("主动战斗：挂机中先点掉当前的结算/过场屏（第 {} 次），再找「停止挂机」。", attempt)
+            logger.debug("主动战斗：挂机中先点掉当前的结算/过场屏（第 {} 次），再找「停止挂机」。", attempt)
             _click_box(context, button)
             time.sleep(_SETTLE_STEP_SETTLE)
             continue
@@ -638,17 +638,17 @@ def _stop_idle(context: Context) -> bool:
     deadline = time.time() + _STOP_IDLE_TIMEOUT
     while time.time() < deadline:
         if not _idle_running(context):
-            logger.info("主动战斗：挂机已取消。")
+            logger.debug("主动战斗：挂机已取消。")
             break
         time.sleep(0.8)
     else:
         logger.warning("主动战斗：点过「停止挂机」后画面仍在挂机中，继续后续流程。")
     if _in_battle(context):
-        logger.info("主动战斗：取消挂机时正打着一场，先把这一场打完（不计入战斗次数）。")
+        logger.debug("主动战斗：取消挂机时正打着一场，先把这一场打完（不计入战斗次数）。")
         _fight(context, timeout=_SUPPORT_BATTLE_TIMEOUT)
         _settle_battle(context, claim_chest=_flag_enabled(context, _CHEST_FLAG))
     elif _settle_button(context) is not None:
-        logger.info("主动战斗：取消挂机后停在结算屏，先结算完（不计入战斗次数）。")
+        logger.debug("主动战斗：取消挂机后停在结算屏，先结算完（不计入战斗次数）。")
         _settle_battle(context, claim_chest=_flag_enabled(context, _CHEST_FLAG))
     return True
 
@@ -666,14 +666,14 @@ def _refill_energy_once(context: Context) -> bool:
     """
     if not any(_find_contains(context, _ENERGY_TITLE_ROI, text) for text in _ENERGY_TITLE_TEXTS):
         return False
-    logger.info("主动战斗：BP 不足弹出了「补充精力」，用第一个精力补给补一次。")
+    logger.debug("主动战斗：BP 不足弹出了「补充精力」，用第一个精力补给补一次。")
     context.run_task("EnergyRefill_Dialog")
     return True
 
 
 def _start_battle(context: Context, entry: Entry, prefs: dict[str, str]) -> bool:
     """点列表里的这一场 → 助战选择 → 编队「开始战斗」→ 校验真的进了战斗画面。"""
-    logger.info("主动战斗：点进 y={} 这一场支援战斗。", entry.click_y)
+    logger.debug("主动战斗：点进 y={} 这一场支援战斗。", entry.click_y)
     _click_at(context, _ENTRY_CLICK_X, entry.click_y)
     if handle_away_full(context):
         logger.warning("主动战斗：出现「暂离已满」，这一场没有打出去，交回刷新节点。")
@@ -685,7 +685,7 @@ def _start_battle(context: Context, entry: Entry, prefs: dict[str, str]) -> bool
             return False
         logger.warning("主动战斗：点了这一场但没弹出「助战选择」，交回刷新节点。")
         return False
-    logger.info("主动战斗：已进入「助战选择」，调用助战选择模块（偏好={}）。", prefs or "未配置")
+    logger.debug("主动战斗：已进入「助战选择」，调用助战选择模块（偏好={}）。", prefs or "未配置")
     if not PickSupport().pick(context, prefs):
         logger.warning("主动战斗：助战选择没能进到编队页，交回刷新节点（未开始战斗）。")
         return False
@@ -698,14 +698,14 @@ def _start_battle(context: Context, entry: Entry, prefs: dict[str, str]) -> bool
         _click_box(context, start)
         time.sleep(_CLICK_SETTLE)
         if _find_contains(context, _STAMINA_ROI, _STAMINA_TEXT) is not None:
-            logger.info("主动战斗：BP 不足弹出了「补充体力」，按全局体力药设置补一次。")
+            logger.debug("主动战斗：BP 不足弹出了「补充体力」，按全局体力药设置补一次。")
             context.run_task("StaminaRefill_Dialog")
             time.sleep(_CLICK_SETTLE)
             if attempt == 0:
                 continue
         elif _refill_energy_once(context):
             # 「补充精力」是另一套弹窗（BP 不够时弹），用第一个精力补给；补完再点一次「开始战斗」。
-            logger.info("主动战斗：已用第一个精力补给补一次，重新点「开始战斗」。")
+            logger.debug("主动战斗：已用第一个精力补给补一次，重新点「开始战斗」。")
             if attempt == 0:
                 continue
         break
@@ -716,7 +716,7 @@ def _start_battle(context: Context, entry: Entry, prefs: dict[str, str]) -> bool
             _BATTLE_ENTER_TIMEOUT,
         )
         return False
-    logger.info("主动战斗：已进入战斗画面。")
+    logger.debug("主动战斗：已进入战斗画面。")
     return True
 
 
@@ -754,13 +754,13 @@ def _chest_claimable(context: Context) -> bool:
         return False
     remaining = _chest_remaining(context)
     if remaining is None:
-        logger.info("主动战斗：有高难限定宝箱但读不到今日掉落次数，按可领取尝试一次（有确认框兜底）。")
+        logger.debug("主动战斗：有高难限定宝箱但读不到今日掉落次数，按可领取尝试一次（有确认框兜底）。")
         return True
     left, total = remaining
     if left <= 0:
-        logger.info("主动战斗：高难限定宝箱今日掉落已用完（{}/{}），不点它。", left, total)
+        logger.debug("主动战斗：高难限定宝箱今日掉落已用完（{}/{}），不点它。", left, total)
         return False
-    logger.info("主动战斗：有可领取的高难限定宝箱（今日掉落 {}/{}）。", left, total)
+    logger.debug("主动战斗：有可领取的高难限定宝箱（今日掉落 {}/{}）。", left, total)
     return True
 
 
@@ -803,17 +803,17 @@ def _claim_chest(context: Context) -> bool:
                 break
             time.sleep(0.4)
         if kind == "claim":
-            logger.info("主动战斗：弹出「是否领取高难限定宝箱？」，点「确定」领取。")
+            logger.debug("主动战斗：弹出「是否领取高难限定宝箱？」，点「确定」领取。")
             if not _confirm_chest_dialog(context):
                 return False
             after = _chest_remaining(context)
             if before is not None and after is not None:
-                logger.info("主动战斗：高难限定宝箱已领取，今日掉落 {} → {}。", before, after)
+                logger.debug("主动战斗：高难限定宝箱已领取，今日掉落 {} → {}。", before, after)
             else:
-                logger.info("主动战斗：已点「确定」领取高难限定宝箱（读不到领取前后次数，按已领取处理）。")
+                logger.debug("主动战斗：已点「确定」领取高难限定宝箱（读不到领取前后次数，按已领取处理）。")
             return True
         if kind == "exit":
-            logger.info("主动战斗：点宝箱弹的是「未领取是否退出副本」，这一场领不了，交给结算流程处理。")
+            logger.debug("主动战斗：点宝箱弹的是「未领取是否退出副本」，这一场领不了，交给结算流程处理。")
             return False
     logger.warning("主动战斗：点宝箱图标后没出现领取确认框，本次不领取。")
     return False
@@ -833,7 +833,7 @@ def _settle_battle(context: Context, claim_chest: bool) -> bool:
         # ① 宝箱相关弹窗（领取确认 / 未领取退本确认）：两种都点「确定」
         kind = _chest_dialog_kind(context)
         if kind is not None:
-            logger.info("主动战斗：结算第 {} 轮，处理「{}」宝箱弹窗 → 点「确定」。", round_no, kind)
+            logger.debug("主动战斗：结算第 {} 轮，处理「{}」宝箱弹窗 → 点「确定」。", round_no, kind)
             _confirm_chest_dialog(context)
             continue
         # ② 好友申请（用了别人的助战，结算后可能弹）
@@ -841,13 +841,13 @@ def _settle_battle(context: Context, claim_chest: bool) -> bool:
             continue
         # ③「恭喜获得」遮屏奖励弹窗：点空白处关掉（Exception_RewardClose 同款判据/点位）
         if _find_contains(context, _OBTAIN_ROI, _OBTAIN_TEXT) is not None:
-            logger.info("主动战斗：结算第 {} 轮，关掉「恭喜获得」遮屏奖励弹窗。", round_no)
+            logger.debug("主动战斗：结算第 {} 轮，关掉「恭喜获得」遮屏奖励弹窗。", round_no)
             _click_at(context, _OBTAIN_CLOSE_POINT[0], _OBTAIN_CLOSE_POINT[1])
             time.sleep(_SETTLE_STEP_SETTLE)
             continue
         # ④ 已经回到战斗支援列表
         if _at_battle_list(context):
-            logger.info("主动战斗：结算完成，已回到战斗支援列表。")
+            logger.debug("主动战斗：结算完成，已回到战斗支援列表。")
             return True
         # ⑤ 贡献结算页上有可领取的高难限定宝箱（且全局开关打开）→ 点它领取
         if claim_chest and not claimed and _chest_claimable(context):
@@ -859,7 +859,7 @@ def _settle_battle(context: Context, claim_chest: bool) -> bool:
             context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT
         )
         if box is not None:
-            logger.info("主动战斗：结算第 {} 轮，点「继续/确认」。", round_no)
+            logger.debug("主动战斗：结算第 {} 轮，点「继续/确认」。", round_no)
             _click_box(context, box)
             time.sleep(_SETTLE_STEP_SETTLE)
             continue
@@ -954,7 +954,7 @@ class AutoIdleBattleRun(CustomAction):
                 return CustomAction.RunResult(success=done > 0)
             _stop_idle(context)
             if not _at_battle_list(context):
-                logger.info("主动战斗：当前不在战斗支援列表，先回列表。")
+                logger.debug("主动战斗：当前不在战斗支援列表，先回列表。")
                 if not _goto_battle_list(context):
                     logger.error("主动战斗：回不到战斗支援列表，结束（已完成 {} 场）。", done)
                     break
@@ -967,7 +967,7 @@ class AutoIdleBattleRun(CustomAction):
                 entry = _pick_entry(context, selected, more_first)
                 if entry is not None:
                     break
-                logger.info("主动战斗：第 {} 次刷新后仍没有可支援的战斗，等一会儿再刷。", attempt)
+                logger.debug("主动战斗：第 {} 次刷新后仍没有可支援的战斗，等一会儿再刷。", attempt)
                 time.sleep(_LIST_POLL)
 
             if entry is None:
