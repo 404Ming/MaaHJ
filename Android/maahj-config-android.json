@@ -4,11 +4,11 @@
     "exportedAt": 1792500187609,
     "app": {
         "applicationId": "com.aliothmoon.maafw.maahj",
-        "versionName": "0.1.5"
+        "versionName": "0.1.8"
     },
     "project": {
         "name": "maahj",
-        "version": "v0.1.5"
+        "version": "v0.1.8"
     },
     "configuration": {
         "themeMode": "System",
@@ -184,6 +184,13 @@
                         "optionValues": {},
                         "customLabel": null,
                         "instanceId": "b78787a5-8962-4421-8b20-29e4339a3c54"
+                    },
+                    {
+                        "taskName": "FinalBattle",
+                        "enabled": true,
+                        "optionValues": {},
+                        "customLabel": null,
+                        "instanceId": "0820031d-13c5-4f65-b47a-4e89b5fc6971"
                     },
                     {
                         "taskName": "AutoIdle",
