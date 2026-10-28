@@ -1089,8 +1089,22 @@ def _call_support(context: Context) -> bool:
     return _send_support(context)
 
 
-def _battle_result(context: Context) -> bool | None:
-    """判定战斗是否已结束：胜利 True / 失败 False / 仍在战斗中 None。"""
+def _battle_result(context: Context, extra_over=None) -> bool | None:
+    """判定战斗是否已结束：胜利 True / 失败 False / 仍在战斗中 None。
+
+    `extra_over(context) -> bool | None`：调用方追加的"战斗是否已经结束"判据（返回 None 表示不表态）。
+    终末之战用它把「复活提示」也算作本场失败 —— 否则失败弹窗上没有「作战失败」四个字，
+    这里会一直认成"还在战斗"，把 10 分钟战斗预算白等完。
+    """
+    if extra_over is not None:
+        try:
+            extra = extra_over(context)
+        except Exception as error:  # noqa: BLE001  附加判据异常不能影响正常判定
+            logger.warning("副本挑战：附加结束判据异常（忽略）：{}", error)
+            extra = None
+        if extra is not None:
+            return extra
+
     if _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT) is not None or _find_in(
         context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT
     ) is not None:
@@ -1105,7 +1119,7 @@ def _battle_result(context: Context) -> bool | None:
     return None
 
 
-def _fight(context: Context, timeout: float | None = None) -> bool:
+def _fight(context: Context, timeout: float | None = None, extra_over=None) -> bool:
     """推进一场房间战，直到出现胜利结算（底部「点击空白处继续」/「确认」）。
 
     中间按钮只有两个状态循环：**「跳过回合」→ 点 → 「回合开始」→ … → 「跳过回合」**。
@@ -1140,7 +1154,7 @@ def _fight(context: Context, timeout: float | None = None) -> bool:
     if not _flag_enabled(context, _SKIP_TURN_FLAG):
         logger.info("副本挑战：全局「跳过回合」未开启 → 不识别按钮状态、不点任何按钮，只等结算。")
         while time.time() < deadline:
-            result = _battle_result(context)
+            result = _battle_result(context, extra_over)
             if result is not None:
                 return result
             time.sleep(_BATTLE_STEP_SETTLE)
@@ -1174,7 +1188,7 @@ def _fight(context: Context, timeout: float | None = None) -> bool:
         # 按钮带里既没有「跳过回合」也没有「回合开始」：可能这一屏在过场动画，也可能战斗结束了
         misses += 1
         if misses % _BATTLE_RESULT_EVERY == 0:
-            result = _battle_result(context)
+            result = _battle_result(context, extra_over)
             if result is not None:
                 logger.info("副本挑战：战斗结束（共点「跳过回合」{} 次）。", clicks)
                 return result

@@ -2,10 +2,10 @@
     "interface_version": 2,
     "name": "maahj",
     "label": "MaaHJ",
-    "title": "哼唧小助手",
+    "title": "哼唧小助手 v0.1.8",
     "icon": "resource/base/image/icon.png",
     "github": "https://github.com/404Ming/MaaHJ",
-    "version": "v0.1.7",
+    "version": "v0.1.8",
     "description": "MaaHJ MaaFW project",
     "controller": [
         {
@@ -201,6 +201,30 @@
                     }
                 }
             }
+        },
+        "领取高难限定宝箱": {
+            "type": "switch",
+            "label": "领取高难限定宝箱",
+            "description": "战斗胜利后的「战斗贡献结算」页上，若右侧出现「高难限定宝箱 · 今日掉落：N/M」（只有传说副本会掉）：开启时点宝箱 →「是否领取高难限定宝箱？」→「确定」领取；关闭则不点它，之后「还未领取当前副本的高难限定宝箱，是否退出副本？」的确认框会自动点「确定」照常退出（不领取）。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Flag_ClaimHardChest": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Flag_ClaimHardChest": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "Yes"
         },
         "水属性编队助战": {
             "type": "select",
@@ -1482,29 +1506,293 @@
             ],
             "default_case": "Yes"
         },
-        "挑战元素自律机械": {
-            "type": "switch",
-            "label": "挑战元素自律机械",
-            "description": "机神降临任务内是否挑战「元素自律机械」。关闭则跳过这一段（不消耗挑战次数）。",
+        "终末之战-挑战副本": {
+            "type": "select",
+            "label": "挑战副本",
+            "description": "选择「终末之战」要挑战的副本。幼年体 / 成年体 走「入侵讨伐」地图（走到目标附近点「挑战」，再点「挑战副本」进助战）；终末使徒系列走「深入裂隙」地图，需先选难度再创建房间。地图寻路方向按副本区分：幼年体向左、成年体向上、终末使徒先向上再向右、困难终末使徒先向上再向左。",
             "cases": [
                 {
-                    "name": "Yes",
+                    "name": "幼年体",
                     "pipeline_override": {
-                        "MachineGodDescent_Flag_ElementMachineChallenge": {
-                            "enabled": true
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "幼年体"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "入侵讨伐"
+                                    ]
+                                }
+                            }
                         }
                     }
                 },
                 {
-                    "name": "No",
+                    "name": "成年体",
                     "pipeline_override": {
-                        "MachineGodDescent_Flag_ElementMachineChallenge": {
-                            "enabled": false
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "成年体"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "入侵讨伐"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "终末使徒 · 难度1",
+                    "pipeline_override": {
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "终末使徒 · 难度1"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "深入裂隙"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "终末使徒 · 难度2",
+                    "pipeline_override": {
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "终末使徒 · 难度2"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "深入裂隙"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "终末使徒 · 难度3",
+                    "pipeline_override": {
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "终末使徒 · 难度3"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "深入裂隙"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "困难终末使徒 · 难度1",
+                    "pipeline_override": {
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "困难终末使徒 · 难度1"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "深入裂隙"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "困难终末使徒 · 难度2",
+                    "pipeline_override": {
+                        "FinalBattle_Config_Target": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "困难终末使徒 · 难度2"
+                                    ]
+                                }
+                            }
+                        },
+                        "FinalBattle_Invade": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "深入裂隙"
+                                    ]
+                                }
+                            }
                         }
                     }
                 }
             ],
-            "default_case": "Yes"
+            "default_case": "幼年体"
+        },
+        "终末之战-挑战次数": {
+            "type": "input",
+            "label": "挑战次数",
+            "inputs": [
+                {
+                    "name": "终末之战-挑战次数",
+                    "label": "挑战次数",
+                    "description": "「终末之战」要打几场，可输入 1-99999 的整数，默认 3。每场都会真实消耗副本次数；后续轮优先走结算页的「挑战下一关」以省掉地图寻路。",
+                    "default": "3",
+                    "pipeline_type": "int",
+                    "verify": "^([1-9]\\d{0,4})$",
+                    "pattern_msg": "请输入 1-99999 之间的整数"
+                }
+            ],
+            "pipeline_override": {
+                "FinalBattle_Fight": {
+                    "action": {
+                        "param": {
+                            "custom_action_param": {
+                                "times": "{终末之战-挑战次数}"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "挑战元素自律机械": {
+            "type": "select",
+            "label": "挑战元素自律机械",
+            "description": "选择机神降临任务内要挑战的「元素自律机械」BOSS。选「不挑战」则整段跳过（不消耗挑战次数）；选了某个 BOSS 时，只在它出现在挑战页（或「大量出现」选择页里可选）时才挑战，当前轮换的不是它就直接跳过这一段。",
+            "cases": [
+                {
+                    "name": "不挑战",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": false
+                        },
+                        "MachineGodDescent_Config_ElementTarget": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        ""
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "火 · 赫淮斯托斯",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": true
+                        },
+                        "MachineGodDescent_Config_ElementTarget": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "赫淮斯托斯"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "风 · 代达罗斯",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": true
+                        },
+                        "MachineGodDescent_Config_ElementTarget": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "代达罗斯"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "水 · 安菲特里忒",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": true
+                        },
+                        "MachineGodDescent_Config_ElementTarget": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "安菲特里忒"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "土 · 盖亚",
+                    "pipeline_override": {
+                        "MachineGodDescent_Flag_ElementMachineChallenge": {
+                            "enabled": true
+                        },
+                        "MachineGodDescent_Config_ElementTarget": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "盖亚"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "不挑战"
         },
         "自律机械挑战次数": {
             "type": "input",
@@ -1979,7 +2267,7 @@
                     }
                 },
                 {
-                    "name": "神祝之翼 · 太阿",
+                    "name": "神祝之翼 · 奥蕾莉亚",
                     "pipeline_override": {
                         "DungeonChallenge_TargetSeries": {
                             "recognition": {
@@ -1994,7 +2282,7 @@
                             "recognition": {
                                 "param": {
                                     "expected": [
-                                        "太阿"
+                                        "奥蕾莉亚"
                                     ]
                                 }
                             }
@@ -2002,7 +2290,7 @@
                     }
                 },
                 {
-                    "name": "神祝之翼 · 戈舆",
+                    "name": "神祝之翼 · 倪克丝",
                     "pipeline_override": {
                         "DungeonChallenge_TargetSeries": {
                             "recognition": {
@@ -2017,7 +2305,7 @@
                             "recognition": {
                                 "param": {
                                     "expected": [
-                                        "戈舆"
+                                        "倪克丝"
                                     ]
                                 }
                             }
@@ -2540,7 +2828,7 @@
         },
         "炼金次数": {
             "type": "input",
-            "label": "​",
+            "label": "\u200b",
             "inputs": [
                 {
                     "name": "炼金次数",
@@ -2621,6 +2909,98 @@
             "default_case": [
                 "全体可见"
             ]
+        },
+        "自动挂机-挑战方式": {
+            "type": "select",
+            "label": "挑战方式",
+            "description": "「自动挂机」= 让游戏自己开离线挂机，按下面勾选的副本难度连续自动战斗（原有流程）；「主动战斗」= 不进挂机，而是在「战斗列表」里按下面勾选的副本做支援筛选，按「副本优先级」挑别人的支援请求主动打，打到「战斗次数」场为止。",
+            "cases": [
+                {
+                    "name": "自动挂机",
+                    "pipeline_override": {
+                        "AutoIdle_BattleStart": {
+                            "enabled": false
+                        },
+                        "AutoIdle_IdleRun": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "主动战斗",
+                    "pipeline_override": {
+                        "AutoIdle_BattleStart": {
+                            "enabled": true
+                        },
+                        "AutoIdle_IdleRun": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "自动挂机"
+        },
+        "自动挂机-副本优先级": {
+            "type": "select",
+            "label": "副本优先级",
+            "description": "只在「挑战方式 = 主动战斗」时生效：支援列表里同时有多场符合筛选的战斗时，优先挑「剩余血量多」还是「剩余血量少」的那一场（参与人数已满的不选）。",
+            "cases": [
+                {
+                    "name": "优先进血量多",
+                    "pipeline_override": {
+                        "AutoIdle_Config_HpPriority": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "多"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "优先进血量少",
+                    "pipeline_override": {
+                        "AutoIdle_Config_HpPriority": {
+                            "recognition": {
+                                "param": {
+                                    "expected": [
+                                        "少"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            "default_case": "优先进血量多"
+        },
+        "自动挂机-战斗次数": {
+            "type": "input",
+            "label": "战斗次数",
+            "inputs": [
+                {
+                    "name": "自动挂机-战斗次数",
+                    "label": "战斗次数",
+                    "description": "「挑战方式 = 主动战斗」时要打几场支援战斗，可输入 1-9999 的整数，默认 1。每一场都会真实消耗 BP；刷新后连续找不到可支援的战斗会提前结束。",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^([1-9]\\d{0,3})$",
+                    "pattern_msg": "请输入 1-9999 之间的整数"
+                }
+            ],
+            "pipeline_override": {
+                "AutoIdle_BattleStart": {
+                    "action": {
+                        "param": {
+                            "custom_action_param": {
+                                "times": "{自动挂机-战斗次数}"
+                            }
+                        }
+                    }
+                }
+            }
         },
         "自动挂机-王国灾厄": {
             "type": "checkbox",
@@ -3074,7 +3454,7 @@
                     }
                 },
                 {
-                    "name": "太阿 · 困难",
+                    "name": "奥蕾莉亚 · 困难",
                     "pipeline_override": {
                         "AutoIdle_S3_05_Hard": {
                             "enabled": true
@@ -3082,7 +3462,7 @@
                     }
                 },
                 {
-                    "name": "戈舆 · 困难",
+                    "name": "倪克丝 · 困难",
                     "pipeline_override": {
                         "AutoIdle_S3_06_Hard": {
                             "enabled": true
@@ -3429,14 +3809,15 @@
     "global_option": [
         "跳过回合",
         "体力药消耗优先级",
+        "领取高难限定宝箱",
+        "发送多人支援请求",
+        "支援请求范围",
         "水属性编队助战",
         "火属性编队助战",
         "风属性编队助战",
         "土属性编队助战",
         "光属性编队助战",
-        "暗属性编队助战",
-        "发送多人支援请求",
-        "支援请求范围"
+        "暗属性编队助战"
     ],
     "import": [
         "./tasks/guide.json",

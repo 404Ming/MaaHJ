@@ -7,6 +7,7 @@ ACTION_MODULES = (
     "dungeon_challenge",
     "auto_idle",
     "auto_idle_battle",
+    "final_battle",
     "shop",
     "alchemy",
     "stamina_refill",

@@ -1,0 +1,178 @@
+{
+    "FinalBattle_Flow": {
+        // 「终末之战」监督节点（用户需求）：
+        //   主页 → 菜单 → 活动 → 活动一览 → 终末之战（位置不固定，靠文字识别）→ 入侵讨伐
+        //   → 地图内寻路（摇杆拖动）→ 挑战 → 助战/编队/战斗/结算（Python 接管）。
+        // 分工：导航沿用「机神降临」验证过的坐标与单次语义（max_hit 1），地图内的一切交给
+        // FinalBattle_Fight 的 CustomAction —— 摇杆拖动、等待寻路、找「挑战」按钮都是回合制 UI 之外的
+        // 实时操作，用 Pipeline 表达会非常别扭。
+        // 实测 2026-10-28（720x1280，MuMu）：
+        //   主页右列「终末之战」(631,849,78,24)；菜单页横幅「终末之战」(76,357,261,71)；
+        //   活动一览卡片「终末之战」(88,145,256,75) + 「THE FINAL BATTLE」(88,216,252,25)；
+        //   活动页底部「入侵讨伐」(465,1217,98,29)、「深入裂隙」(596,1218,98,30)。
+        // ⚠️ FinalBattle_Fight 不能挂在 Flow 的 next 里：它没有识别（恒命中），第一轮就会把
+        //    「还没点到入侵讨伐」的场面吞掉，导致 CustomAction 在活动页上就开始拖摇杆找「挑战」。
+        //    改为 Invade 命中后才 next 到 Fight，这样「入侵讨伐」认不到时 Flow 会一直重试到超时。
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 30000,
+        "next": [
+            "[JumpBack]Exception_Start",
+            "FinalBattle_OpenMenu",
+            "FinalBattle_OpenActivity",
+            "FinalBattle_OpenEventCard",
+            "FinalBattle_Invade"
+        ]
+    },
+    "FinalBattle_OpenMenu": {
+        // 主页底部导航最右侧「菜单」（实测 (637,1232,55,32)）。
+        // ROI 只框右下导航区：菜单页顶部标题「菜单MENU」不能被当成本节点的入口。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "FinalBattle_Flow"
+        ]
+    },
+    "FinalBattle_OpenActivity": {
+        // 菜单页左侧功能列第一行的「活动」图标。
+        // ⚠️ 实测「活动」被 OCR 拆成两字框：活(157,600,44,42) + 动(177,638,38,38)，
+        //    整串「活动」匹配不到，expected 用单字「活」（与机神降临同一套处理）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    120,
+                    575,
+                    130,
+                    100
+                ],
+                "expected": [
+                    "活"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "FinalBattle_Flow"
+        ]
+    },
+    "FinalBattle_OpenEventCard": {
+        // 活动一览里的「终末之战」卡片：**扫描整个列表区域找文字**，点文字框中心。
+        // 卡片排序随版本变化（实测当前终末之战在第一位 (88,145,256,75)，下方还有新手福利卡），
+        // 不能框固定槽位。ROI y=100..800：上边界避开「活动一览」标题，下边界避开底部导航。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    100,
+                    720,
+                    700
+                ],
+                "expected": [
+                    "终末之战"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1200,
+        "timeout": 3000,
+        "next": [
+            "FinalBattle_Flow"
+        ]
+    },
+    "FinalBattle_Invade": {
+        // 活动页底部的地图入口（实测 720x1280）：
+        //   「入侵讨伐」(465,1217,98,29) —— 幼年体 / 成年体 走这里；
+        //   「深入裂隙」(596,1218,98,30) —— 终末使徒 / 困难终末使徒 走这里（用户 2026-10-28 更正）。
+        // 两个按钮并排，所以 ROI 取 (400,1195,300,80) 同时兜住；具体点哪个由任务设置
+        // 「终末之战-挑战副本」覆写本节点的 expected（幼年体/成年体=入侵讨伐，使徒系列=深入裂隙）。
+        // ⚠️ 点击后 UI 仍留在活动页上（地图是叠加层，底部这两个按钮还在），
+        //    所以不校验顶部标题，靠 max_hit 1 保证只点一次。
+        // ⚠️ 实测点完「终末之战」卡片后，活动页底部两个入口要 2~3s 才渲染出来（第一次跑到这里是
+        //    认不到的）。本节点不再靠自己的 timeout 硬等，而是由 Flow 的 30s 超时反复重试本节点，
+        //    认到才 next 到 FinalBattle_Fight —— 认不到就整轮超时失败，绝不在活动页上盲拖摇杆。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    400,
+                    1195,
+                    300,
+                    80
+                ],
+                "expected": [
+                    "入侵讨伐"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1000,
+        "timeout": 15000,
+        "next": [
+            "FinalBattle_Fight"
+        ]
+    },
+    "FinalBattle_Fight": {
+        // 地图内的全部战斗流程（CustomAction `FinalBattleRun`）：
+        //   等角色寻路 → 按副本方向拖摇杆 → 认「挑战」并点击 → 难度 → 创建房间 → 助战 → 编队
+        //   → 战斗模块 → 结算 → 按次数回「终末之战」循环 → 回主页。
+        // times 由任务设置「终末之战-挑战次数」注入；target 由「终末之战-挑战副本」写入
+        // FinalBattle_Config_Target 的 recognition.param.expected[0]（与「挑战元素自律机械」同一套约定）。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "FinalBattleRun",
+                "custom_action_param": {
+                    "times": 3
+                }
+            }
+        }
+    },
+    "FinalBattle_Config_Target": {
+        // 「终末之战-挑战副本」下拉选项的**取值载体**（PI select 按规范写 recognition.param.expected[0]）。
+        // 纯载体：不被任何 next 引用、永不执行。取值：幼年体 / 成年体 /
+        // 终末使徒 · 难度1~3 / 困难终末使徒 · 难度1~2。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    "幼年体"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

@@ -329,6 +329,11 @@
         // 子页面判定并返回：图片匹配左下角「返回」图标按钮（Daily/BackButton.png），命中后点其中心（居中点击返回）。
         // 比 OCR「返回|世界」更稳：实测子页面左下角是纯图标按钮（无文字），OCR 反而读不到。
         // 执行完由 [JumpBack] 回 Start 重新判定。
+        // ⚠️ 一次只点一下，点完必须重新判主页（用户 2026-10-28 要求）：
+        //    返回是**带过场动画**的，post_delay 必须覆盖动画（500ms 太短）——旧版点完 500ms
+        //    就回 Start 判主页，此时画面还在转场、认不到「惑星之间」，于是又点一次返回，
+        //    表现为「返回键连点两下」；若第一下其实已经回到主页，第二下就直接点空了/触发退出确认。
+        //    现在 post_delay 1500ms，转场结束再判；判到主页即 Done，绝不再点第二下。
         // max_hit 限制返回层级：从深层页面（战前准备 → 详情 → 列表 → 商店 → 活动一览 → 菜单）回来
         // 需要 5 级以上，故给 8；用尽后交给 BackToMainHub_GameNotRunning 的启动兜底，不会无限点。
         "max_hit": 8,
@@ -351,7 +356,7 @@
         "action": {
             "type": "Click"
         },
-        "post_delay": 500,
+        "post_delay": 1500,
         "timeout": 3000
     },
     "BackToMainHub_BackBlind": {
@@ -366,6 +371,8 @@
         // 就到主页；更深层的退层由 Back 的模板命中负责（8 级）。降到 3 是为了减少**桌面 / 加载页**
         // 上的盲点次数——(63,1230) 在桌面可能压在 Dock 图标上，误触会打开别的 app。
         // 用尽后交给 BackToMainHub_GameNotRunning 的启动兜底，不无限点。
+        // 与 Back 同一处理（用户要求「点一次就检一次」）：post_delay 覆盖转场，点完回 Start 判主页，
+        // 判到主页即停，不再补点第二下。
         "max_hit": 3,
         "action": {
             "type": "Click",
@@ -378,7 +385,7 @@
                 ]
             }
         },
-        "post_delay": 700,
+        "post_delay": 1500,
         "timeout": 3000
     },
     "BackToMainHub_GameNotRunning": {
