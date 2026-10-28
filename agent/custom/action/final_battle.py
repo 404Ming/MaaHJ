@@ -23,6 +23,9 @@
   6. 胜利：结算页优先点「挑战下一关」直接进下一场；这一下被体力/精力拦住时会弹
      「补充体力」/「补充精力」，先走公共补充状态机补满、再点一次「挑战下一关」。
      不点「挑战下一关」时才连点「点击空白处继续/确认/确定」领奖；
+     ⚡ 胜利识别→点击必须 ≤0.5s（用户要求）：战斗推进循环每帧 177ms 截图 + ~50ms 同帧 OCR，
+     失败/复活判定也复用同一帧（见 `_revive_prompt` 与 `dungeon_challenge._battle_result`），
+     所以任何一拍的耗时上限 ≈0.35s，胜利页一出现下一拍就能点掉；
   7. 失败（用户要求）：取消复活 → 取消呼叫支援 → 撤退 → 重新点「挑战」；
   8. 按任务设置次数循环，结束回主页。
 
@@ -68,7 +71,15 @@ from utils import logger
 from utils.interrupt import is_stopping
 from utils.params import parse_params
 
-from .dungeon_challenge import _fight, _settle
+from .dungeon_challenge import (
+    _click_settle_once,
+    _fight,
+    _frame_index,
+    _index_on,
+    _pick_contains,
+    _pick_exact,
+    _settle,
+)
 from .gameplay_challenge import (
     PickSupport,
     _read_support_prefs,
@@ -81,7 +92,6 @@ from .machine_god_descent import (
     _GOD_ROOM_START_TEXT,
     _GOD_START_CONFIRM_ROI,
     _GOD_START_CONFIRM_TEXT,
-    _MGD_BOTTOM_ROI,
     _SUPPORT_TITLE_ROI,
     _SUPPORT_TITLE_TEXT,
     _WIN_CONFIRM_TEXT,
@@ -186,10 +196,16 @@ _REFILL_RETRY = 2
 # 点完「挑战下一关」后等战斗画面出现的上限：加载一般 3~6s，给到 8s 兜住慢加载，
 # 又不会在「补体力没成功、人还停在结算页」时白等太久。
 _NEXT_BATTLE_GATE = 8.0
+# 点完「挑战下一关」后等「补充体力/精力」弹窗的窗口：弹窗约 1s 内展开，2s 足够；
+# 旧版这里是「固定睡 1.5s + 再等 3s」，白白多等 2.5s 才去看战斗画面。
+_NEXT_STAGE_REFILL_WAIT = 2.0
+# 结算链里两次操作之间最多等多久：过场屏到下一屏实测 0.3~1.2s，超过这个还没东西就认定结算完了。
+_RESULT_STEP_WAIT = 2.5
 
 # ---- 失败处理（取消复活 → 取消呼叫支援 → 撤退）--------------------------------------
 _REVIVE_ROI = (80, 250, 560, 620)
 _REVIVE_TEXT = "复活"
+_CANCEL_TEXT = "取消"
 # 单场战斗失败后最多重打几次（用户要求：撤退后重新点「挑战」再打）
 _DEFEAT_RETRY = 3
 _DEFEAT_BUTTON_ROI = (60, 760, 600, 360)
@@ -533,14 +549,22 @@ def _enter_battle(context: Context, target: str) -> bool:
 
 
 # ---- 胜利结算 / 挑战下一关 ---------------------------------------------------------
-def _find_next_stage(context: Context):
-    """找结算页的「挑战下一关」：先窄 ROI 再整条底部带，精确匹配优先、包含兜底。"""
-    return (
-        _find_in(context, _NEXT_STAGE_ROI, _NEXT_STAGE_TEXT)
-        or _find_contains(context, _NEXT_STAGE_ROI, _NEXT_STAGE_TEXT)
-        or _find_in(context, _NEXT_STAGE_WIDE_ROI, _NEXT_STAGE_TEXT)
-        or _find_contains(context, _NEXT_STAGE_WIDE_ROI, _NEXT_STAGE_TEXT)
-    )
+def _scan_result(context: Context) -> dict[str, Any]:
+    """扫一眼结算页：**只截一帧、只 OCR 一次**，覆盖整块「底部按钮带 + 中部确定」。
+
+    `_NEXT_STAGE_WIDE_ROI` = (0,800,720,480) 已经把「挑战下一关 / 点击空白处继续 / 确认」和
+    中部「确定」全包住，所以一帧就够判到底（实测 截图 177ms + 该区域 OCR 98ms）。
+
+    旧版这里是 4 次 `_find_in`（4 次截图 ≈ 700ms）+ 3 次按钮识别，光"看清这一屏"就 1.2s，
+    而每次操作前都要看清一次 —— 这就是结算链间隔 1.2~1.6s 的主因。
+    """
+    return _frame_index(context, _NEXT_STAGE_WIDE_ROI)
+
+
+def _find_next_stage(context: Context, index: dict[str, Any] | None = None):
+    """找结算页的「挑战下一关」：精确匹配优先、包含兜底（都从同一帧索引里取，不重复截图）。"""
+    index = index if index is not None else _scan_result(context)
+    return _pick_exact(index, _NEXT_STAGE_TEXT) or _pick_contains(index, _NEXT_STAGE_TEXT)
 
 
 def _refill_stamina(context: Context, *, wait: float = 3.0) -> bool:
@@ -596,13 +620,15 @@ def _click_next_stage(context: Context, box) -> None:
     实测语义（同玩法挑战）：体力不足时这一次点击**不会开战**，只弹补充界面；
     补完弹窗关掉后人还停在结算页，必须再点一次「挑战下一关」这一场才真正开始。
     所以这里补完要重新找按钮重点，找不到说明已经自动开战，直接收手。
+
+    点完不再固定睡 1.5s：那一觉既没看清屏幕、又把"立刻开打"的可能性等掉了；
+    现在直接接「补充体力/精力」的有界等待（2s），没弹窗就立刻交回主线去看战斗画面。
     """
     logger.info("终末之战：结算页点「{}」，直接进下一场。", _NEXT_STAGE_TEXT)
     _click_box(context, box)
-    time.sleep(1.5)
 
     for _attempt in range(_REFILL_RETRY):
-        if not _refill_stamina(context):
+        if not _refill_stamina(context, wait=_NEXT_STAGE_REFILL_WAIT):
             return
         retry = _find_next_stage(context)
         if retry is None:
@@ -610,33 +636,75 @@ def _click_next_stage(context: Context, box) -> None:
             return
         logger.info("终末之战：补完体力，重新点「{}」把这一场开起来。", _NEXT_STAGE_TEXT)
         _click_box(context, retry)
-        time.sleep(1.5)
     logger.warning("终末之战：连续补了 {} 次体力仍停在结算页，交回主线继续。", _REFILL_RETRY)
 
 
-def _claim_rewards(context: Context, *, allow_next: bool = True) -> str:
+def _wait_result_step(context: Context, timeout: float = _RESULT_STEP_WAIT) -> dict[str, Any]:
+    """等结算链的下一步出现（挑战下一关 / 继续 / 确认 / 确定），返回**出现那一刻**的那一帧索引。
+
+    这是整套快速结算的关键：不是"睡固定时间再看"，而是"每帧都看，一出现立刻返回"。
+    单帧成本 ≈ 截图 177ms + OCR 98ms ≈ 0.28s，所以从按钮出现到我们动手 ≤ 0.3s。
+    """
+    deadline = time.time() + timeout
+    while True:
+        index = _scan_result(context)
+        if (
+            _pick_exact(index, _NEXT_STAGE_TEXT, _WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _RESULT_CONFIRM_TEXT)
+            is not None
+            or _pick_contains(index, _NEXT_STAGE_TEXT) is not None
+        ):
+            return index
+        if is_stopping(context) or time.time() >= deadline:
+            return {}
+
+
+def _claim_rewards(
+    context: Context,
+    *,
+    allow_next: bool = True,
+    first_index: dict[str, Any] | None = None,
+) -> str:
     """胜利结算：优先「挑战下一关」快速进下一场，否则连点继续/确认/确定领奖。
 
     allow_next=False 用于**最后一轮**：这时再点「挑战下一关」会把角色送进下一场战斗，
     随后流程又回主页，白开一局。所以最后一轮只领奖、不点「挑战下一关」。
 
+    `first_index`：`_fight` 认出胜利时那一帧的 {文本: 框}（`win_sink`）。传进来就直接用，
+    **不再重新截图识别** —— 胜利到"点第一下"的间隔因此只有一次点击（≈50ms）。
+
     返回 "next"（已用「挑战下一关」直接进下一场）/ "settled"（结算完，回到地图）。
     """
+    index = first_index or _scan_result(context)
     for _round in range(_RESULT_ROUNDS):
-        next_box = _find_next_stage(context) if allow_next else None
-        if next_box is not None:
-            _click_next_stage(context, next_box)
-            return "next"
+        if allow_next:
+            next_box = _find_next_stage(context, index)
+            if next_box is not None:
+                _click_next_stage(context, next_box)
+                return "next"
 
         box = (
-            _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT)
-            or _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT)
-            or _find_in(context, _RESULT_CONFIRM_ROI, _RESULT_CONFIRM_TEXT)
+            _pick_exact(index, _WIN_CONTINUE_TEXT)
+            or _pick_exact(index, _WIN_CONFIRM_TEXT)
+            or _pick_exact(index, _RESULT_CONFIRM_TEXT)
         )
         if box is not None:
             logger.info("终末之战：结算第 {} 轮，点「继续/确认/确定」。", _round + 1)
-            _click_box(context, box)
-            time.sleep(1.2)
+            # 点完按帧等到「按钮消失/挪位」= 画面已切；切屏那一帧的索引直接给下一轮复用，
+            # 不用再补一帧。旧版是点完固定睡 1.2s 再看，每屏都白等一次。
+            index = (
+                _click_settle_once(
+                    context,
+                    box,
+                    (_WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _RESULT_CONFIRM_TEXT),
+                    _NEXT_STAGE_WIDE_ROI,
+                )
+                or {}
+            )
+            continue
+
+        # 这一帧什么都没有：可能是过场屏（下一屏还没渲染），也可能真的结算完了
+        index = _wait_result_step(context)
+        if index:
             continue
         break
 
@@ -652,17 +720,28 @@ def _claim_rewards(context: Context, *, allow_next: bool = True) -> str:
 
 
 # ---- 失败处理 --------------------------------------------------------------------
-def _revive_prompt(context: Context) -> bool | None:
+def _revive_prompt(context: Context, img: Any = None) -> bool | None:
     """战斗失败判据（传给 `_fight` 的 extra_over）：
 
     「复活」提示 +「取消」按钮**同时**认到才算战斗结束。只认「复活」两个字不够 ——
     战斗画面里角色的技能/天赋文案也可能出现「复活」，会把正常战斗误判成失败。
     返回 False = 本场已失败（让 `_fight` 立刻收手去走失败处理）；None = 不表态。
+
+    `img`：`_fight` 会把**它本来就要截的那一帧**传进来，这时本判据只在同一帧上做两次 OCR
+    （≈70ms）。旧签名（只给 context）会各自截图两次 ≈0.45s，而这个判据每 6 帧跑一次，
+    正好和「战斗胜利」结算页的出现窗口撞在一起 —— 那一次撞上就把胜利页的点击拖到 0.5s 以上，
+    所以这里必须跟 `_battle_result` 共用同一帧。
     """
-    if _find_contains(context, _REVIVE_ROI, _REVIVE_TEXT) is None:
-        return None
-    if _find_in(context, _DEFEAT_BUTTON_ROI, "取消") is None:
-        return None
+    if img is not None:
+        if _pick_contains(_index_on(context, img, _REVIVE_ROI), _REVIVE_TEXT) is None:
+            return None
+        if _pick_exact(_index_on(context, img, _DEFEAT_BUTTON_ROI), _CANCEL_TEXT) is None:
+            return None
+    else:
+        if _find_contains(context, _REVIVE_ROI, _REVIVE_TEXT) is None:
+            return None
+        if _find_in(context, _DEFEAT_BUTTON_ROI, _CANCEL_TEXT) is None:
+            return None
     logger.warning("终末之战：战斗画面出现「复活」提示，判定本场失败。")
     return False
 
@@ -671,8 +750,8 @@ def _cancel_revive(context: Context) -> bool:
     """战斗失败后的「复活」提示：只点「取消」，不复活（不消耗道具）。"""
     if _revive_prompt(context) is None:
         return False
-    cancel = _find_in(context, _DEFEAT_BUTTON_ROI, "取消") or _find_contains(
-        context, _DEFEAT_BUTTON_ROI, "取消"
+    cancel = _find_in(context, _DEFEAT_BUTTON_ROI, _CANCEL_TEXT) or _find_contains(
+        context, _DEFEAT_BUTTON_ROI, _CANCEL_TEXT
     )
     if cancel is None:
         logger.warning("终末之战：看到「复活」提示但认不到「取消」，不盲点。")
@@ -687,8 +766,8 @@ def _cancel_support_call(context: Context) -> bool:
     """失败/结算时若弹出「呼叫支援」框，点「取消」把它关掉（绝不发送）。"""
     if _find_contains(context, (150, 150, 420, 160), _SUPPORT_DIALOG_TITLE_TEXT) is None:
         return False
-    cancel = _find_in(context, _DEFEAT_BUTTON_ROI, "取消") or _find_contains(
-        context, _DEFEAT_BUTTON_ROI, "取消"
+    cancel = _find_in(context, _DEFEAT_BUTTON_ROI, _CANCEL_TEXT) or _find_contains(
+        context, _DEFEAT_BUTTON_ROI, _CANCEL_TEXT
     )
     if cancel is None:
         logger.warning("终末之战：看到「呼叫支援」弹窗但认不到「取消」，不盲点。")
@@ -777,11 +856,16 @@ def _run_once(
         if not _enter_battle(context, target):
             return "fail"
 
-    if not _fight(context, _BATTLE_TIMEOUT, extra_over=_revive_prompt):
+    win_frame: list = []  # _fight 会把"认出胜利那一帧"的 OCR 索引塞进来，结算直接复用
+    if not _fight(context, _BATTLE_TIMEOUT, extra_over=_revive_prompt, win_sink=win_frame):
         _defeat_flow(context)
         return "defeat"
 
-    outcome = _claim_rewards(context, allow_next=allow_next)
+    outcome = _claim_rewards(
+        context,
+        allow_next=allow_next,
+        first_index=win_frame[0] if win_frame else None,
+    )
     return "next" if outcome == "next" else "done"
 
 
@@ -814,10 +898,18 @@ class FinalBattleRun(CustomAction):
                 #    这时直接进 _fight 会白等一整个 _BATTLE_TIMEOUT（10 分钟）才收手。
                 in_next_battle = False
                 if _wait_for_battle_presence(context, _NEXT_BATTLE_GATE):
-                    if not _fight(context, _BATTLE_TIMEOUT, extra_over=_revive_prompt):
+                    next_win: list = []
+                    if not _fight(context, _BATTLE_TIMEOUT, extra_over=_revive_prompt, win_sink=next_win):
                         _defeat_flow(context)
                         continue
-                    in_next_battle = _claim_rewards(context, allow_next=done + 1 < times) == "next"
+                    in_next_battle = (
+                        _claim_rewards(
+                            context,
+                            allow_next=done + 1 < times,
+                            first_index=next_win[0] if next_win else None,
+                        )
+                        == "next"
+                    )
                     done += 1
                     logger.info("终末之战：第 {}/{} 次完成（挑战下一关）。", done, times)
                     continue

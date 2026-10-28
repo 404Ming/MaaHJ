@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 import time
 from collections.abc import Sequence
@@ -196,6 +197,10 @@ _BATTLE_TURN_ROI = (180, 1070, 380, 110)
 _BATTLE_TURN_WIDE_ROI = (0, 1000, 720, 280)
 _BATTLE_TURN_TEXT = "跳过回合"
 _BATTLE_TURN_WAIT_TEXTS = ("回合开始", "等待回合开始")
+# 额外的胜利锚点：结算页左下「挑战下一关」（与右侧「确认」并排，实测 box (96,1193,129,32) score 1.000）。
+# 战斗进行中这块区域只有「跳过回合 / 回合开始」，绝不会出现「挑战下一关」，
+# 所以把它也算成胜利判据：OCR 偶发漏读「确认」时，不会把胜利页当成"还在打"白等到超时。
+_WIN_NEXT_STAGE_TEXT = "挑战下一关"
 # 极短间隔：一轮「截图 + 窄 ROI OCR」约 0.15~0.25s，再留一点间隙避免空转占满 CPU。
 _BATTLE_FAST_SLEEP = 0.05
 # 每 N 次没认到按钮状态，就做一次「战斗是否结束」的完整判定（胜利/失败/结算）。
@@ -207,6 +212,9 @@ _SKIP_TURN_FLAG = "Flag_BattleSkipTurn"
 _BATTLE_TIMEOUT = 600.0
 # 不点按钮时的轮询节奏（每轮一次「胜利/失败」判定）。
 _BATTLE_STEP_SETTLE = 1.5
+# 不点按钮时按帧轮询胜利结算：一帧本身 ≈0.28s，再补 0.15s 间隙 ⇒ 反应 ≤0.45s，
+# 又不会像紧循环那样整场战斗都满速截图 OCR。
+_BATTLE_RESULT_POLL = 0.15
 # 战斗画面在场上限（BattlePresence 轮询，复用玩法挑战已验证的锚点节点）。
 _BATTLE_PRESENCE_TIMEOUT = 30.0
 
@@ -383,6 +391,93 @@ def _ocr_index(context: Context, roi: Sequence[float]) -> dict[str, Any]:
     for text, box in _ocr(context, roi):
         index.setdefault(text.strip(), box)
     return index
+
+
+def _ocr_on(context: Context, img: Any, roi: Sequence[float]) -> list[tuple[str, Any]]:
+    """在**已经截好的那一帧**上做一次 OCR（不再截图）。
+
+    实测单次 screencap（adb 往返）≈177ms，而 OCR 本身只 10~40ms（窄 ROI 10ms / 720x280 底部带 41ms），
+    也就是说「多调一次 `_find_in`」的代价几乎全是多截一帧。所以高频判定必须共用同一帧。
+    """
+    pipeline = {
+        "PickSupport_OCR": {
+            "recognition": {"type": "OCR", "param": {"roi": list(roi)}},
+            "action": {"type": "DoNothing"},
+        }
+    }
+    detail = context.run_recognition("PickSupport_OCR", img, pipeline)
+    if detail is None:
+        return []
+    return [(str(result.text or "").strip(), result.box) for result in (detail.all_results or [])]
+
+
+def _index_on(context: Context, img: Any, *rois: Sequence[float]) -> dict[str, Any]:
+    """在**已经截好的那一帧**上 OCR 多个 ROI，合并成 {文本: 框}（不再截图）；无帧返回空 dict。
+
+    战斗/结算的高频判定都走这里：一次 ADB screencap ≈177ms 才是大头，同帧多 OCR 一个 ROI
+    只要 15~40ms。所以"多判一个文案"要加成到同一帧上，绝不新增一次截图。
+    """
+    index: dict[str, Any] = {}
+    if img is None:
+        return index
+    for roi in rois:
+        for text, box in _ocr_on(context, img, roi):
+            if text:
+                index.setdefault(text, box)
+    return index
+
+
+def _frame_index(context: Context, *rois: Sequence[float]) -> dict[str, Any]:
+    """截**一帧**，对同一帧依次 OCR 多个 ROI，合并成 {文本: 框}；截不到帧返回空 dict。"""
+    return _index_on(context, _screencap(context), *rois)
+
+
+def _pick_exact(index: dict[str, Any], *texts: str) -> Any:
+    """在 index 里按**完全相等**找第一个命中的框（OCR 偶尔带空格，比较时去掉空白）。"""
+    for text, box in index.items():
+        key = text.replace(" ", "")
+        if any(key == wanted.replace(" ", "") for wanted in texts):
+            return box
+    return None
+
+
+def _pick_contains(index: dict[str, Any], *texts: str) -> Any:
+    """在 index 里按**包含**找第一个命中的框（「今日剩余挑战次数：1/2」这类带后缀的锚点用）。"""
+    for text, box in index.items():
+        key = text.replace(" ", "")
+        if any(wanted.replace(" ", "") in key for wanted in texts):
+            return box
+    return None
+
+
+def _click_settle_once(
+    context: Context,
+    box: Any,
+    texts: Sequence[str],
+    *rois: Sequence[float],
+    timeout: float = 4.0,
+) -> dict[str, Any] | None:
+    """点一下结算按钮，然后**按帧轮询到画面真的切走**（按钮消失或移位），返回切换瞬间那一帧的 index。
+
+    为什么不再 `time.sleep(_CLICK_SETTLE)`：结算屏切换实测 0.3~0.8s，固定睡 2s 全是白等，
+    而且多屏连点时每屏都白等一次；反过来「点完立刻再点」又可能在转场屏上点空/点到别的按钮。
+    这里用「同一帧里这个按钮消失或挪位」当切换判据，既快又不会重复点同一屏。
+    """
+    old_x = _box_center_x(box)
+    old_y = _box_center_y(box)
+    _click_box(context, box)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        index = _frame_index(context, *rois)
+        if not index:
+            continue  # 截图失败：直接重试，别当成"已切换"
+        same = _pick_exact(index, *texts)
+        if same is None:
+            return index  # 按钮没了 = 已经进入下一屏，这一帧 index 直接给调用方复用
+        if abs(_box_center_x(same) - old_x) > 12 or abs(_box_center_y(same) - old_y) > 12:
+            return index  # 按钮挪位 = 换了新的屏（同一文案的新按钮）
+        time.sleep(0.05)
+    return None
 
 
 def _wait_contains(context: Context, roi: Sequence[float], wanted: str, timeout: float) -> Any:
@@ -1089,29 +1184,60 @@ def _call_support(context: Context) -> bool:
     return _send_support(context)
 
 
-def _battle_result(context: Context, extra_over=None) -> bool | None:
+def _call_extra_over(extra_over, context: Context, img: Any) -> bool | None:
+    """调用附加结束判据：回调接受 `(context, img)` 时把**当前帧**传进去（省一次截图）。
+
+    老回调只接受 `(context)`，所以按签名参数个数分流；签名取不到时按老签名调用。
+    """
+    try:
+        arity = len(inspect.signature(extra_over).parameters)
+    except (TypeError, ValueError):
+        arity = 1
+    if arity >= 2:
+        return extra_over(context, img)
+    return extra_over(context)
+
+
+def _battle_result(
+    context: Context,
+    extra_over=None,
+    img: Any = None,
+    index: dict[str, Any] | None = None,
+) -> bool | None:
     """判定战斗是否已结束：胜利 True / 失败 False / 仍在战斗中 None。
 
-    `extra_over(context) -> bool | None`：调用方追加的"战斗是否已经结束"判据（返回 None 表示不表态）。
+    `extra_over(context[, img]) -> bool | None`：调用方追加的"战斗是否已经结束"判据（返回 None 表示不表态）。
     终末之战用它把「复活提示」也算作本场失败 —— 否则失败弹窗上没有「作战失败」四个字，
     这里会一直认成"还在战斗"，把 10 分钟战斗预算白等完。
+
+    `img` / `index`：调用方**当前这一帧**的截图与 {文本: 框} 索引，传进来就直接复用。
+
+    ⚡ 为什么要复用同一帧：旧版这里逐条 `_find_in`（点击空白处继续 / 确认 / 作战失败 / 撤退，
+    终末之战还外加「复活 + 取消」）合计 **5 次截图 + 6 次 OCR，实测 ≈1.1s**，而它每 6 帧才跑一次。
+    「战斗胜利」结算页正好渲染在这一拍里时，从胜利页出现到点下去的间隔就被拉到 1s 以上 ——
+    这正是终末之战"战斗胜利识别慢"的真凶。复用调用方的帧之后同一拍只多花 ~90ms（几次同帧 OCR），
+    帧耗上限回到 ≈0.35s，胜利页一出现就能在 1 帧（≈0.25s）内点掉。
     """
+    if img is None:
+        img = _screencap(context)
     if extra_over is not None:
         try:
-            extra = extra_over(context)
+            extra = _call_extra_over(extra_over, context, img)
         except Exception as error:  # noqa: BLE001  附加判据异常不能影响正常判定
             logger.warning("副本挑战：附加结束判据异常（忽略）：{}", error)
             extra = None
         if extra is not None:
             return extra
 
-    if _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT) is not None or _find_in(
-        context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT
-    ) is not None:
+    band = index if index is not None else _index_on(context, img, _MGD_BOTTOM_ROI)
+    if _pick_exact(band, _WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _WIN_NEXT_STAGE_TEXT) is not None:
         return True
-    if _find_in(context, _GOD_LOSE_RESULT_ROI, _GOD_LOSE_TEXT) is not None:
+
+    if _pick_exact(_index_on(context, img, _GOD_LOSE_RESULT_ROI), _GOD_LOSE_TEXT) is not None:
         logger.warning("副本挑战：本场「作战失败」，点底部「撤退」退出。")
-        retreat = _find_in(context, _MGD_BOTTOM_ROI, "撤退")
+        retreat = _pick_exact(band, "撤退")
+        if retreat is None:
+            retreat = _find_in(context, _MGD_BOTTOM_ROI, "撤退")
         if retreat is not None:
             _click_box(context, retreat)
             time.sleep(_CLICK_SETTLE)
@@ -1119,7 +1245,12 @@ def _battle_result(context: Context, extra_over=None) -> bool | None:
     return None
 
 
-def _fight(context: Context, timeout: float | None = None, extra_over=None) -> bool:
+def _fight(
+    context: Context,
+    timeout: float | None = None,
+    extra_over=None,
+    win_sink: list | None = None,
+) -> bool:
     """推进一场房间战，直到出现胜利结算（底部「点击空白处继续」/「确认」）。
 
     中间按钮只有两个状态循环：**「跳过回合」→ 点 → 「回合开始」→ … → 「跳过回合」**。
@@ -1132,6 +1263,10 @@ def _fight(context: Context, timeout: float | None = None, extra_over=None) -> b
         （实机表现为"不管有没有跳过回合，一直在点中间的按钮"）；
       · 「奥义释放 / 奥义关闭」是**开关按钮**，点一下就把全局设置里的奥义释放关掉/打开
         （实机就是被这里误点关掉的）—— 所以战斗推进绝不碰它，也不会去点「自动 / 倍速」。
+
+    `win_sink`：调用方传一个 list 进来，胜利那一帧的 {文本: 框} 会 append 进去。
+    结算逻辑拿它就能直接点「挑战下一关」/「继续」，**不用再重新识别一遍**
+    （重新识别 = 再截一帧 177ms + OCR，胜利到操作的间隔就是这么被拉长的）。
 
     「跳过回合」是否要连点由全局任务配置 `Flag_BattleSkipTurn` 决定：
       · 开启：用**窄 ROI**（中间按钮）紧循环高频轮询，认到就立刻点，点完立刻再看下一帧
@@ -1153,50 +1288,79 @@ def _fight(context: Context, timeout: float | None = None, extra_over=None) -> b
 
     if not _flag_enabled(context, _SKIP_TURN_FLAG):
         logger.info("副本挑战：全局「跳过回合」未开启 → 不识别按钮状态、不点任何按钮，只等结算。")
+        misses = 0
         while time.time() < deadline:
-            result = _battle_result(context, extra_over)
-            if result is not None:
-                return result
-            time.sleep(_BATTLE_STEP_SETTLE)
+            # 同样是一帧判到底：胜利按钮和「挑战下一关」都在底部带里，
+            # 认到就返回（≤0.5s 反应），认不到才每隔几帧做一次失败/复活判定（画面上部，要另外看）——
+            # 那次判定复用**这一帧**（`img` / `index`），不再额外截图。
+            img = _screencap(context)
+            index = _index_on(context, img, _BATTLE_TURN_WIDE_ROI)
+            if _pick_exact(index, _WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _WIN_NEXT_STAGE_TEXT) is not None:
+                logger.info("副本挑战：胜利结算已出（未开跳过回合，仅识别）。")
+                if win_sink is not None:
+                    win_sink.append(index)
+                return True
+            misses += 1
+            if misses % _BATTLE_RESULT_EVERY == 0:
+                result = _battle_result(context, extra_over, img=img, index=index)
+                if result is not None:
+                    return result
+            time.sleep(_BATTLE_RESULT_POLL)
         logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", budget)
         return False
 
-    logger.info("副本挑战：全局「跳过回合」已开启 → 高频轮询中间按钮，认到「跳过回合」立刻点。")
-    roi = _BATTLE_TURN_ROI
-    tightened = False
+    logger.info("副本挑战：全局「跳过回合」已开启 → 每帧判按钮 + 胜利结算，认到「跳过回合」立刻点。")
+    probe = _BATTLE_TURN_ROI
     misses = 0
     clicks = 0
     while time.time() < deadline:
-        texts = _ocr_index(context, roi)
-        turn = texts.get(_BATTLE_TURN_TEXT)
-        if turn is not None:
-            misses = 0
-            clicks += 1
-            if not tightened and roi != _BATTLE_TURN_ROI:
-                tightened = True
-                # 已经靠宽带上认到了按钮：用实测位置把 ROI 收紧，后续每轮更快
-                roi = _roi_around_box(turn)
-                logger.info("副本挑战：按实测按钮位置把轮询 ROI 收紧到 {}。", roi)
-            _click_box(context, turn)
-            continue  # 点完立刻看下一帧：按钮此刻会变成「回合开始」
-
-        if any(text in texts for text in _BATTLE_TURN_WAIT_TEXTS):
-            misses = 0
+        img = _screencap(context)
+        if img is None:
             time.sleep(_BATTLE_FAST_SLEEP)
             continue
 
-        # 按钮带里既没有「跳过回合」也没有「回合开始」：可能这一屏在过场动画，也可能战斗结束了
+        # ── 一帧判到底 ────────────────────────────────────────────────────────────
+        # 窄 ROI（10ms）先抓「跳过回合」：它可点窗口很窄，必须每帧都看。
+        band: dict[str, Any] = {}
+        turn = _pick_exact(dict(_ocr_on(context, img, probe)), _BATTLE_TURN_TEXT)
+        if turn is None:
+            # 窄 ROI 没中：**同一帧**再 OCR 整条底部带（41ms，不再截图——截图 177ms 才是大头）。
+            # 这一带同时含「跳过回合 / 回合开始 / 点击空白处继续 / 确认 / 挑战下一关」，
+            # 所以胜利画面一到就在这一帧里认出来 ⇒ 识别延迟 = 1 帧 ≈ 0.25s，
+            # 旧版要等 misses 攒到 _BATTLE_RESULT_EVERY 再做慢判定，最坏 1.5~2s。
+            band = _index_on(context, img, _BATTLE_TURN_WIDE_ROI)
+            # 先排除"还在打"：按钮状态优先判。否则战斗中偶尔出现的其它「确认」会被误判成胜利结算。
+            turn = _pick_exact(band, _BATTLE_TURN_TEXT)
+            if turn is not None:
+                # 窄 ROI 版式偏了，但宽带认到了：用实测位置把 ROI 收紧，后续每帧更快
+                probe = _roi_around_box(turn)
+            elif _pick_contains(band, *_BATTLE_TURN_WAIT_TEXTS) is not None:
+                misses = 0
+                time.sleep(_BATTLE_FAST_SLEEP)
+                continue
+            elif _pick_exact(band, _WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _WIN_NEXT_STAGE_TEXT) is not None:
+                # 底部带里既没有「跳过回合」也没有「回合开始」，却有结算按钮 ⇒ 本场结束
+                logger.info("副本挑战：胜利结算已出（共点「跳过回合」{} 次），立刻接管结算页。", clicks)
+                if win_sink is not None:
+                    # 把这一帧的整条索引交给结算逻辑：连「挑战下一关」都省一次识别
+                    win_sink.append(band)
+                return True
+
+        if turn is not None:
+            misses = 0
+            clicks += 1
+            _click_box(context, turn)
+            continue  # 点完立刻看下一帧：按钮此刻会变成「回合开始」
+
+        # 底部带里既没有按钮状态也没有结算按钮：过场动画 / 作战失败 / 复活提示
+        # 失败/复活判定复用**这一帧**（band 已 OCR 过底部带，只需再 OCR 失败锚点 + 调用方判据），
+        # 单拍成本从 ~1.1s 降到 ~90ms ⇒ 胜利页落在这一拍里也只晚 1 帧（≤0.35s）就能点掉。
         misses += 1
         if misses % _BATTLE_RESULT_EVERY == 0:
-            result = _battle_result(context, extra_over)
+            result = _battle_result(context, extra_over, img=img, index=band)
             if result is not None:
                 logger.info("副本挑战：战斗结束（共点「跳过回合」{} 次）。", clicks)
                 return result
-            if roi != _BATTLE_TURN_WIDE_ROI:
-                # 连续认不到：可能是分辨率/版式偏差，退到整条底部带再试（慢一点但不漏）
-                band = [text.strip() for text in texts]
-                logger.info("副本挑战：窄 ROI 连续 {} 次没认到按钮状态（文本={}），改用整条底部带。", misses, band)
-                roi = _BATTLE_TURN_WIDE_ROI
         time.sleep(_BATTLE_FAST_SLEEP)
 
     logger.warning("副本挑战：战斗等待超过 {} 秒仍未结束，放弃本场。", budget)
@@ -1209,25 +1373,46 @@ def _settle(context: Context) -> bool:
     实机教训：胜利后不止一屏，而且「确定」会连着弹好几次（战利品 → 结算 → 好友申请框）。
     只点一次「确定」就会停在结算页、回不到主页，所以这里每轮重新识别一次按钮并再点，
     直到既没有可点的按钮、又已经回到房间页/主页（或达到轮数上限）为止。
+
+    ⚡ 性能：每轮**只截一帧**（底部带 + 中部「确定」共用这张图，省掉 3 次重复截图 ≈ 530ms），
+    点完用「按钮消失 / 挪位」当切屏判据（`_click_settle_once`），
+    所以相邻两次点击的间隔 ≈ 一帧(177ms) + OCR(40ms) + 点击(50ms) ≈ 0.3s，
+    而不再是固定 `sleep(_CLICK_SETTLE * 0.8)` = 1.6s 的干等。
     """
+    index: dict[str, Any] = {}
     for _round in range(_RESULT_MAX_ROUNDS):
+        if not index:
+            index = _frame_index(context, _MGD_BOTTOM_ROI, _DIALOG_CONFIRM_ROI)
+        if not index:
+            time.sleep(0.2)  # 截图失败，稍后重试
+            continue
+
         # 先认按钮：结算浮层可能盖在房间页上，「开始战斗」偶尔仍能被 OCR 读到，
         # 所以必须"有结算按钮就先点按钮"，没有按钮才判定已经离开结算页。
         box = (
-            _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT)
-            or _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT)
-            or _find_in(context, _DIALOG_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT)
+            _pick_exact(index, _WIN_CONTINUE_TEXT)
+            or _pick_exact(index, _WIN_CONFIRM_TEXT)
+            or _pick_exact(index, _DIALOG_CONFIRM_TEXT)
         )
         if box is not None:
             logger.info("副本挑战：结算第 {} 轮，点「继续/确认/确定」。", _round + 1)
-            _click_box(context, box)
-            time.sleep(_CLICK_SETTLE * 0.8)
+            index = (
+                _click_settle_once(
+                    context,
+                    box,
+                    (_WIN_CONTINUE_TEXT, _WIN_CONFIRM_TEXT, _DIALOG_CONFIRM_TEXT),
+                    _MGD_BOTTOM_ROI,
+                    _DIALOG_CONFIRM_ROI,
+                )
+                or {}
+            )
             continue
 
         if _dismiss_friend_request(context):
+            index = {}
             continue
 
-        if _on_hub(context) or _find_in(context, _ROOM_START_ROI, _ROOM_START_TEXT) is not None:
+        if _pick_exact(index, _HUB_TEXT) is not None or _pick_contains(index, _ROOM_START_TEXT) is not None:
             # 「确定」→「好友申请」有 1~2s 渲染延迟：交回上层之前先留一个有界窗口把它接住，
             # 否则这一轮会"看着像结算完成"提前返回，下一轮退主页时弹窗还盖着 → 退不出去 →
             # 第二次挑战根本开始不了（实机现象）。
@@ -1237,7 +1422,8 @@ def _settle(context: Context) -> bool:
                 logger.info("副本挑战：结算完成，已回到房间页/主页。")
             return True
 
-        time.sleep(1.2)  # 这一屏可能正在切下一屏，等一轮再看
+        index = {}
+        time.sleep(0.2)  # 这一屏可能正在切下一屏，看下一帧再看
 
     logger.warning("副本挑战：结算循环 {} 轮仍未回到房间页/主页。", _RESULT_MAX_ROUNDS)
     return False
