@@ -4,11 +4,11 @@
     "exportedAt": 1792500187609,
     "app": {
         "applicationId": "com.aliothmoon.maafw.maahj",
-        "versionName": "0.1.9"
+        "versionName": "0.2.0"
     },
     "project": {
         "name": "maahj",
-        "version": "v0.1.9"
+        "version": "v0.2.0"
     },
     "configuration": {
         "themeMode": "System",

@@ -1,0 +1,127 @@
+{
+    "GemSynthesis_Start": {
+        // 「宝石合成」入口：整条流程都在 Python（GemSynthesis）里，实机 720x1280 逐跳印证
+        // （2026-10-29，MuMu 127.0.0.1:16512）：
+        //   主页「菜单」(639,1232) → 菜单页「宝石」(471,977) → 宝石页「合成」页签
+        //   → 按勾选等级从低到高：点卡位 →「N级XXX宝石」详情 →「放入」×2/×3
+        //   → 成功率 75%（二合一）/ 100%（三合一）→「合成」→「提示·是否消耗N颗M级宝石」→「确定」
+        //   → 成功弹「恭喜获得 · 点击空白区域关闭」；失败不弹窗、直接回合成页
+        //   → 该等级宝石不够一轮时「取下」已放入的宝石并跳过该等级
+        //   → 全部跑完回主页。
+        // 设置来自客户端覆写的载体节点（不是 custom_action_param）：
+        //   GemSynth_Flag_ModeThree / GemSynth_Flag_ModeTwo、GemSynth_Flag_Lv1…Lv8。
+        // ⚠️ 每轮「合成」都会真实消耗宝石；二合一失败也会吃掉 2 颗材料。
+        // timeout：一轮约 10~15 秒，1 小时足够覆盖大量轮次；异常时由客户端停止兜底。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "GemSynthesis"
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "GemSynthesis_Done"
+        ]
+    },
+    "GemSynthesis_Done": {
+        // 终态：本次宝石合成结束（每轮结束时已经尽量把角色送回主页）。
+        // 无条件节点，保证任务以成功收尾。
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynthesis_OcrProbe": {
+        // 空壳 OCR 节点：GemSynthesis 在 CustomAction 里用 context.run_recognition 做整屏/局部 OCR，
+        // ROI 由调用方按当次需要传 override，所以这里默认写 [0,0,0,0]（= 整屏）。
+        // 不参与任何 next 链，只作为识别模板存在。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    0,
+                    0,
+                    0
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_ModeTwo": {
+        // 任务设置「合成模式 · 二合一」的载体（select 选项覆写 enabled：二合一 true / 三合一 false）。
+        // 二合一 = 每次放 2 颗同级宝石，成功率 75%，失败时这 2 颗一起没。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_ModeThree": {
+        // 任务设置「合成模式 · 三合一」的载体（select 选项覆写 enabled）。
+        // ⚠️ 默认 true，与 interface.json 的 default_case「三合一」一致：客户端没下发 override 时按 100% 合成。
+        "enabled": true,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv1": {
+        // 任务设置「合成等级」多选框的一个 case（checkbox 只给选中的 case 下发 override，
+        // 未选中时保持这里的默认值，所以载体默认必须是 false）。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv2": {
+        // 同上：「Lv.2」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv3": {
+        // 同上：「Lv.3」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv4": {
+        // 同上：「Lv.4」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv5": {
+        // 同上：「Lv.5」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv6": {
+        // 同上：「Lv.6」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv7": {
+        // 同上：「Lv.7」。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "GemSynth_Flag_Lv8": {
+        // 同上：「Lv.8」。当前 interface.json 的「合成等级」只暴露到 Lv.7（客户端不显示 Lv.8 这一项），
+        // 所以正常情况下没有任何 override 会把它打开；节点先留着，以后要放开只需在 interface.json
+        // 的 checkbox 里补回一个 name=Lv.8 的 case。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    }
+}

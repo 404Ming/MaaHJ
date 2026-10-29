@@ -10,6 +10,7 @@ ACTION_MODULES = (
     "final_battle",
     "shop",
     "alchemy",
+    "gem_synthesis",
     "stamina_refill",
     "weekly_dispatch",
     "daily",

@@ -2,10 +2,10 @@
     "interface_version": 2,
     "name": "maahj",
     "label": "MaaHJ",
-    "title": "哼唧小助手 v0.1.9",
+    "title": "哼唧小助手 v0.2.0",
     "icon": "resource/base/image/icon.png",
     "github": "https://github.com/404Ming/MaaHJ",
-    "version": "v0.1.9",
+    "version": "v0.2.0",
     "description": "MaaHJ MaaFW project",
     "controller": [
         {
@@ -2851,6 +2851,99 @@
                     }
                 }
             }
+        },
+        "宝石合成模式": {
+            "type": "select",
+            "label": "合成模式",
+            "description": "「三合一」= 每次放入 3 颗同级宝石，成功率 100%，不会浪费宝石（默认）；「二合一」= 每次放入 2 颗，成功率 75%，失败时这 2 颗宝石会一起消失。",
+            "cases": [
+                {
+                    "name": "三合一",
+                    "pipeline_override": {
+                        "GemSynth_Flag_ModeTwo": {
+                            "enabled": false
+                        },
+                        "GemSynth_Flag_ModeThree": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "二合一",
+                    "pipeline_override": {
+                        "GemSynth_Flag_ModeTwo": {
+                            "enabled": true
+                        },
+                        "GemSynth_Flag_ModeThree": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ],
+            "default_case": "三合一"
+        },
+        "宝石合成等级": {
+            "type": "checkbox",
+            "label": "合成等级",
+            "description": "要作为材料参与合成的宝石等级（可多选），任务会把石头按等级从低到高依次合成：先把这个等级的宝石两两/三三合完，再处理下一个等级。一个等级都不勾选则任务不做任何点击。列表里超过可见格子数的宝石种类只处理当前页可见的部分。",
+            "cases": [
+                {
+                    "name": "Lv.1",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv1": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "Lv.2",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv2": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "Lv.3",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv3": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "Lv.4",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv4": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "Lv.5",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv5": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "Lv.6",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv6": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "Lv.7",
+                    "pipeline_override": {
+                        "GemSynth_Flag_Lv7": {
+                            "enabled": true
+                        }
+                    }
+                }
+            ]
         },
         "发送多人支援请求": {
             "type": "switch",

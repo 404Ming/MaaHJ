@@ -203,6 +203,32 @@ _NEXT_BATTLE_GATE = 8.0
 # 点完「挑战下一关」后等「补充体力/精力」弹窗的窗口：弹窗约 1s 内展开，2s 足够；
 # 旧版这里是「固定睡 1.5s + 再等 3s」，白白多等 2.5s 才去看战斗画面。
 _NEXT_STAGE_REFILL_WAIT = 2.0
+# 补体力/精力链上所有带 max_hit 的节点。命中计数按 Tasker 累加、run_task 之间不清零，
+# 跑到上限后框架会**直接跳过**该节点（schema：max_hit 超限后「既不会被识别也不会被执行」）。
+# 其中最致命的是 `StaminaRefill_BackClick`（max_hit=3，体力/精力共用）：用光之后「补充体力」弹窗
+# 再也关不掉，于是「挑战下一关」开不了战 → 地图被弹窗挡住 → 恢复①回主页链也失败 → 冷重启游戏。
+# 用户日志 log_20261029_003326.zip 里「玩一阵子就重启一次」就是这个（on_error 截图停在补充体力页）。
+# Pipeline 里已经给两个入口加了 ResetCount；这里再兜一层：真被跳过时先清计数再关一次弹窗。
+_STAMINA_RESET_NODES = (
+    "StaminaRefill_Cycle",
+    "StaminaRefill_UseSmall",
+    "StaminaRefill_UseStandard",
+    "StaminaRefill_UseLuxury",
+    "StaminaRefill_BackClick",
+    "EnergyRefill_UseFirst",
+    "EnergyRefill_DetailUse",
+    "EnergyRefill_DetailClose",
+    "EnergyRefill_Back",
+)
+# 弹窗没关掉时，复位计数后最多再关这么多次。
+_REFILL_CLOSE_RETRY = 2
+# 连续被体力/精力弹窗拦住、「挑战下一关」始终开不了战的容忍次数：超过就按体力不足收尾，
+# 不再去地图上白走 5 段、更不要为一个关不掉的弹窗去冷重启游戏。
+_STAMINA_STALL_LIMIT = 3
+# 回主页链 / 冷重启后等主页出现的预算：软返回很快；冷重启要等模拟器出画面，
+# 客户端日志里「实时画面为空」持续 30~60s，给到 90s 兜住。
+_HUB_WAIT_AFTER_BACK = 3.0
+_HUB_WAIT_AFTER_RESTART = 90.0
 # 结算链里两次操作之间最多等多久：过场屏到下一屏实测 0.3~1.2s，超过这个还没东西就认定结算完了。
 _RESULT_STEP_WAIT = 2.5
 
@@ -463,9 +489,7 @@ def _create_room(context: Context) -> bool:
         logger.warning("终末之战：出现「暂离已满」，本次挑战没有真正开始。")
         return False
 
-    state = _wait_support_or_formation(
-        context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT, _ENTER_TIMEOUT
-    )
+    state = _wait_support_or_formation(context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT, _ENTER_TIMEOUT)
     if state is None:
         logger.error("终末之战：点「创建房间」后既没进助战选择，也没等到编队页「确定」。")
         return False
@@ -523,9 +547,10 @@ def _enter_plain_battle(context: Context) -> bool:
                 return False
             continue
 
-        if _find_in(context, _CREATE_ROOM_ROI, _CREATE_ROOM_TEXT) is not None or _find_in(
-            context, _CREATE_ROOM_WIDE_ROI, _CREATE_ROOM_TEXT
-        ) is not None:
+        if (
+            _find_in(context, _CREATE_ROOM_ROI, _CREATE_ROOM_TEXT) is not None
+            or _find_in(context, _CREATE_ROOM_WIDE_ROI, _CREATE_ROOM_TEXT) is not None
+        ):
             return _create_room(context)
 
         start = _find_in(context, _GOD_ROOM_START_ROI, _GOD_ROOM_START_TEXT)
@@ -542,11 +567,7 @@ def _enter_plain_battle(context: Context) -> bool:
             if confirm is not None:
                 _click_box(context, confirm)
                 time.sleep(1.5)
-            roi = (
-                _GOD_FORMATION_CONFIRM_ROI
-                if start_text == _GOD_FORMATION_CONFIRM_TEXT
-                else _GOD_ROOM_START_ROI
-            )
+            roi = _GOD_FORMATION_CONFIRM_ROI if start_text == _GOD_FORMATION_CONFIRM_TEXT else _GOD_ROOM_START_ROI
             _ensure_battle_started(context, roi, start_text)
             return True
 
@@ -619,11 +640,56 @@ def _find_next_stage(context: Context, index: dict[str, Any] | None = None):
     return _pick_exact(index, _NEXT_STAGE_TEXT) or _pick_contains(index, _NEXT_STAGE_TEXT)
 
 
-def _refill_stamina(context: Context, *, wait: float = 3.0) -> bool:
-    """结算/开战时若弹出「补充体力」或「补充精力」，走公共补充状态机补满并关掉弹窗。
+def _reset_stamina_counts(context: Context) -> None:
+    """清掉补体力/精力链上所有 max_hit 节点的命中计数。
 
-    返回是否真的补过一次（调用方据此重新点被拦下的按钮）。只认弹窗标题，认不到就返回 False，
-    绝不盲点 —— 没弹窗时本函数只在 wait 秒内轮询标题，不做任何点击。
+    命中计数是**跨 run_task 累加**的（同一个 Tasker 内不清零），所以长任务里这些节点会悄悄「用光」。
+    清不掉只记 debug，不打断流程。
+    """
+    for name in _STAMINA_RESET_NODES:
+        try:
+            context.clear_hit_count(name)
+        except Exception as error:  # noqa: BLE001 复位失败不该打断补体力
+            logger.warning("终末之战：复位 {} 的命中计数失败（忽略）：{}", name, error)
+
+
+def _refill_panel_kind(context: Context) -> str:
+    """当前挡在画面上的是哪种补充弹窗：``"体力"`` / ``"精力"`` / ``""``（都没有）。"""
+    if _find_in(context, _STAMINA_TITLE_ROI, _STAMINA_TITLE_TEXT) is not None:
+        return "体力"
+    if _find_contains(context, _ENERGY_TITLE_ROI, _ENERGY_TITLE_TEXT) is not None:
+        return "精力"
+    return ""
+
+
+def _close_refill_panel(context: Context) -> bool:
+    """把挡路的「补充体力 / 补充精力」弹窗关掉，返回是否确实关掉了。
+
+    只走公共收尾节点（`StaminaRefill_Back` / `EnergyRefill_Back` → 左下角返回图标），不写死坐标。
+    关不掉的首要原因是 `StaminaRefill_BackClick` 的 max_hit 用光被框架整节点跳过，
+    所以每次都先复位命中计数再关；这是「自动吃药点不出来 → 冷重启」那条连锁的第二道保险。
+    """
+    kind = _refill_panel_kind(context)
+    if not kind:
+        return True
+    for attempt in range(_REFILL_CLOSE_RETRY):
+        _reset_stamina_counts(context)
+        context.run_task("StaminaRefill_Back" if kind == "体力" else "EnergyRefill_Back")
+        time.sleep(1.0)
+        if not _refill_panel_kind(context):
+            logger.debug("终末之战：补充{}弹窗已关闭。", kind)
+            return True
+        logger.warning("终末之战：补充{}弹窗第 {} 次没关掉，复位命中次数后再试。", kind, attempt + 1)
+    return not _refill_panel_kind(context)
+
+
+def _refill_stamina(context: Context, *, wait: float = 3.0) -> bool:
+    """结算/开战时若弹出「补充体力」或「补充精力」，走公共补充状态机补满并**关掉弹窗**。
+
+    返回「是否真的补上了」：True = 状态机跑完且弹窗已关，调用方可以重新点被拦下的按钮；
+    False = 没有弹窗，或弹窗关掉了但其实没补上（药不够 / 已到上限 / 返回键被跳过），
+    这时重新点按钮只会再弹一次，调用方应当收手而不是空转。
+    只认弹窗标题，认不到就不点任何东西 —— 没弹窗时本函数只在 wait 秒内轮询标题。
 
     为什么用 `StaminaRefill_Dialog` / `EnergyRefill_Dialog` 而不是 `Exception_Start`：
     异常入口是「认到任意异常就整链处理」，在结算页跑它容易顺带点掉结算按钮；
@@ -631,15 +697,23 @@ def _refill_stamina(context: Context, *, wait: float = 3.0) -> bool:
     """
     # 弹窗有开启动画（实测 1s 左右才完全展开），所以标题要**等**而不是只看一眼。
     if _wait_for(context, _STAMINA_TITLE_ROI, _STAMINA_TITLE_TEXT, wait) is not None:
-        logger.debug("终末之战：体力不足弹出「补充体力」，按全局体力药设置补一次。")
-        context.run_task("StaminaRefill_Dialog")
-        time.sleep(1.5)
+        kind, entry = "体力", "StaminaRefill_Dialog"
+    elif _find_contains(context, _ENERGY_TITLE_ROI, _ENERGY_TITLE_TEXT) is not None:
+        kind, entry = "精力", "EnergyRefill_Dialog"
+    else:
+        return False
+
+    logger.debug("终末之战：{}不足弹出「补充{}」，按全局设置补一次。", kind, kind)
+    _reset_stamina_counts(context)
+    context.run_task(entry)
+    time.sleep(1.5)
+    if not _refill_panel_kind(context):
         return True
-    if _find_contains(context, _ENERGY_TITLE_ROI, _ENERGY_TITLE_TEXT) is not None:
-        logger.debug("终末之战：精力不足弹出「补充精力」，按全局精力补给设置补一次。")
-        context.run_task("EnergyRefill_Dialog")
-        time.sleep(1.5)
-        return True
+    # 链没走通（多半是返回键的 max_hit 用光 / 药不够 / 已到上限）：直接把弹窗关掉再交回调用方。
+    logger.warning("终末之战：补{}后弹窗还开着（药不够、已到上限或返回键被跳过），尝试直接关闭。", kind)
+    if _close_refill_panel(context):
+        return False
+    logger.error("终末之战：补充{}弹窗关不掉，本次按体力不足处理。", kind)
     return False
 
 
@@ -833,9 +907,7 @@ def _cancel_support_call(context: Context) -> bool:
 
 def _retreat(context: Context) -> bool:
     """点「撤退」退出失败战斗（有确认框就确定）。"""
-    box = _find_in(context, _RETREAT_ROI, _RETREAT_TEXT) or _find_contains(
-        context, _RETREAT_ROI, _RETREAT_TEXT
-    )
+    box = _find_in(context, _RETREAT_ROI, _RETREAT_TEXT) or _find_contains(context, _RETREAT_ROI, _RETREAT_TEXT)
     if box is None:
         return False
     logger.debug("终末之战：点「撤退」退出本场战斗。")
@@ -900,20 +972,48 @@ def _task_completed(detail: Any, names: set[str]) -> bool:
     return False
 
 
+def _wait_hub(context: Context, timeout: float) -> bool:
+    """等主页出现；截图暂时取不到（冷重启后模拟器会空几十秒）时当「还没到」继续等。
+
+    旧版这里只判一次 `_on_hub`：`LaunchGame_Start` 一返回就查，此时客户端还在报
+    「实时画面为空（EmulatorExtras)」，于是永远判失败、整轮任务被放弃 —— 日志里
+    「冷重启后仍未回到主页」全是这么来的（见 log_20261029_003326.zip）。
+    """
+    deadline = time.time() + timeout
+    while True:
+        try:
+            if _on_hub(context):
+                return True
+        except Exception as error:  # noqa: BLE001 重启中截图会失败，等下一轮再判
+            logger.debug("终末之战：等主页时截图/识别失败（忽略）：{}", error)
+        if is_stopping(context) or time.time() >= deadline:
+            return False
+        time.sleep(2.0)
+
+
 def _back_to_hub(context: Context) -> bool:
-    """回主页：先走公共「返回主页」链，回不到再冷重启游戏。
+    """回主页：先关掉挡路的补充弹窗，再走公共「返回主页」链，回不到才冷重启游戏。
 
     两条链都是既有实现，恢复逻辑**不重写**任何返回/重启细节：
       · `BackToMainHub_Start`：轻动作优先（关弹窗 → 战斗撤退 → 逐级返回），末位自己也会落到启动流程；
       · `LaunchGame_Start`：**不在主页就 StopApp → 等 5s → StartApp**（= 用户说的"重启"）。
+
+    ⚠️「补充体力 / 补充精力」是全屏模态弹窗：`BackToMainHub_Start` 会走 Exception_Stamina 复用同一条
+       StaminaRefill 链，一旦那条链的返回键被 max_hit 跳过，弹窗就永远关不掉、回主页必然失败，
+       于是每次都升级成冷重启。所以这里先自己关一次（带命中次数复位），把连锁掐断在第一步。
     """
+    if _refill_panel_kind(context):
+        logger.info("终末之战：恢复前先关掉挡路的「补充体力/精力」弹窗。")
+        if not _close_refill_panel(context):
+            logger.warning("终末之战：挡路弹窗关不掉，仍然继续走回主页链。")
+
     logger.info("终末之战：恢复①——回主页（公共返回主页链）。")
     context.run_task("BackToMainHub_Start")
-    if _on_hub(context):
+    if _wait_hub(context, _HUB_WAIT_AFTER_BACK):
         return True
     logger.warning("终末之战：返回主页链没能带回主页，改走冷重启（停进程 → 重开 → 登录）。")
     context.run_task("LaunchGame_Start")
-    if _on_hub(context):
+    if _wait_hub(context, _HUB_WAIT_AFTER_RESTART):
         return True
     logger.error("终末之战：冷重启后仍未回到主页。")
     return False
@@ -963,7 +1063,7 @@ def _recover(context: Context) -> str:
     logger.warning("终末之战：在主页重新导航失败，冷重启后再试一次。")
     _reset_hit_counts(context)
     context.run_task("LaunchGame_Start")
-    if not _on_hub(context):
+    if not _wait_hub(context, _HUB_WAIT_AFTER_RESTART):
         return ""
     if _reenter_from_hub(context):
         return "nav"
@@ -971,9 +1071,7 @@ def _recover(context: Context) -> str:
 
 
 # ---- 单次挑战 --------------------------------------------------------------------
-def _run_once(
-    context: Context, target: str, *, first_entry: bool, allow_next: bool = True
-) -> str:
+def _run_once(context: Context, target: str, *, first_entry: bool, allow_next: bool = True) -> str:
     """跑一场：等寻路 → 走摇杆 → 点挑战 → 进战斗 → 战斗 → 结算。
 
     allow_next=False 表示这是**最后一轮**：结算页不点「挑战下一关」，只领奖（避免白开下一局）。
@@ -997,6 +1095,11 @@ def _run_once(
         # 上一场结算后游戏自动续战：人已经在战斗里，再去找「挑战」/拖摇杆只会把流程带偏
         logger.debug("终末之战：当前已在战斗中，直接推进本场。")
     else:
+        if _refill_panel_kind(context):
+            # 「补充体力/精力」是全屏模态：盖着它去地图上走 5 段必然看不见「挑战」，
+            # 白等 30 秒后还会把整轮推给恢复阶梯（接着就是冷重启）。先把弹窗关掉再找。
+            logger.warning("终末之战：画面上还盖着补充体力/精力弹窗，先关掉再找「挑战」。")
+            _close_refill_panel(context)
         if _find_challenge(context) is None and not _walk_to_challenge(context, target):
             return "fail"
 
@@ -1045,6 +1148,7 @@ class FinalBattleRun(CustomAction):
 
         done = 0
         recoveries = 0  # 连续恢复次数（打完一场就清零）
+        stamina_stalls = 0  # 连续被体力/精力弹窗拦住、开不了战的次数（打完一场就清零）
         first_entry = True  # 只有刚点完「入侵讨伐」那一次需要等角色寻路
         in_next_battle = False  # 上一场用「挑战下一关」直接开下一局，不用再走地图
         while done < times:
@@ -1072,8 +1176,32 @@ class FinalBattleRun(CustomAction):
                     )
                     done += 1
                     recoveries = 0
+                    stamina_stalls = 0
                     logger.info("终末之战：第 {}/{} 次完成（挑战下一关）。", done, times)
                     continue
+                # 没开起来：最常见的原因是「挑战下一关」被补充体力/精力弹窗挡住（模态弹窗，点不开战）。
+                # 先把弹窗关干净再重点一次；连关几次仍开不了战就按体力不足收尾 ——
+                # 此时去地图上白走 5 段必然找不到「挑战」，接着就会为一个关不掉的弹窗去冷重启游戏。
+                if _refill_panel_kind(context):
+                    _close_refill_panel(context)
+                    stamina_stalls += 1
+                    logger.warning(
+                        "终末之战：「挑战下一关」被体力/精力弹窗拦住，已关掉弹窗（连续第 {}/{} 次）。",
+                        stamina_stalls,
+                        _STAMINA_STALL_LIMIT,
+                    )
+                    if stamina_stalls >= _STAMINA_STALL_LIMIT:
+                        logger.warning(
+                            "终末之战：连续 {} 次补不上体力/精力，按体力不足结束本次任务（不下地图、不重启）。",
+                            stamina_stalls,
+                        )
+                        break
+                    retry_next = _find_next_stage(context)
+                    if retry_next is not None:
+                        logger.debug("终末之战：弹窗已关，重新点「{}」把这一场开起来。", _NEXT_STAGE_TEXT)
+                        _click_next_stage(context, retry_next)
+                        in_next_battle = True
+                        continue
                 logger.warning("终末之战：「挑战下一关」没有真正开起战斗，退回地图流程重新点「挑战」。")
 
             logger.info("终末之战：第 {}/{} 次开始。", done + 1, times)
@@ -1138,8 +1266,12 @@ class FinalBattleRun(CustomAction):
             in_next_battle = outcome == "next"
             done += 1
             recoveries = 0
+            stamina_stalls = 0
             logger.info("终末之战：第 {}/{} 次完成。", done, times)
 
         logger.info("终末之战结束，共完成 {}/{} 次。", done, times)
+        if _refill_panel_kind(context):
+            logger.info("终末之战：收尾前先关掉挡路的「补充体力/精力」弹窗。")
+            _close_refill_panel(context)
         context.run_task("BackToMainHub_Start")
         return CustomAction.RunResult(success=True)
