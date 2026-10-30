@@ -599,8 +599,14 @@ class ShopSelectionGate(CustomAction):
         return CustomAction.RunResult(success=True)
 
 
-def _scroll_content_to_top(context: Context, times: int = 4) -> None:
+def _scroll_content_to_top(context: Context, times: int = 2) -> None:
     """把内容列表滚回顶部，避免上一次运行残留的滚动位置让上半部分商品扫不到。
+
+    为什么从 4 次降到 2 次：购买顺序与商品表（列表）顺序一致，每件商品买完列表
+    仍留在顶部附近；4 次上滑大多是空转（列表已经在顶）。实机（2026-10-30）从
+    「翻页 2 次」的位置回顶，2 次上滑即回到「征伐印记商店」分区标题处。
+    只有上一件商品「勾选但不在售、翻到底才放弃」时列表才会沉到很底，那种边界
+    由后续翻页查找兜底，不靠这里把列表彻底滚回顶。
 
     每次划屏前查一次停止标志：用户点了「停止」就别再往列表上划。
     """
@@ -608,7 +614,7 @@ def _scroll_content_to_top(context: Context, times: int = 4) -> None:
         if is_stopping(context):
             return
         _swipe(context, SCROLL_UP_FROM, SCROLL_UP_TO, 800)
-        time.sleep(0.6)
+        time.sleep(0.5)
 
 
 def _buy_item(

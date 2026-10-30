@@ -87,6 +87,16 @@ ROI_POPUP_RIGHT = (430, 725, 130, 70)  # 宝石详情右下「放入」/ 已放�
 ROI_POPUP_CANCEL = (185, 725, 130, 70)  # 宝石详情左下「取消」
 ROI_REWARD_HINT = (180, 900, 380, 120)  # 领奖遮屏「点击空白区域关闭」
 ROI_REWARD_TITLE = (150, 170, 420, 130)  # 领奖遮屏「恭喜获得」
+# ---- 排序控件（右上角「等级 ▾ 排序」，2026-10-30 实机 720x1280）-----------------
+# 字段名「等级」显示在 (477,649)，点它弹出字段下拉（等级/品质/有利属性增幅/伤害上限/攻击力，
+# 第一项「等级」在 (508,717)）；方向切换点是字段右侧的倒三角图标 (669,664)：
+# 默认「从高到低」，点一次变「从低到高」。方向不靠 OCR 读三角（图标太小，会被误读成「三/天」），
+# 而是按卡位第一行排列判断（见 _ensure_sort_ascending）。
+ROI_SORT_FIELD = (450, 640, 90, 45)  # 排序字段名「等级」
+ROI_SORT_DROPDOWN = (450, 700, 160, 40)  # 下拉第一项「等级」
+SORT_FIELD_POINT = (505, 666)  # 点字段名弹出下拉
+SORT_DROPDOWN_LEVEL_POINT = (529, 731)  # 下拉第一项「等级」落点
+SORT_TOGGLE_POINT = (669, 664)  # 倒三角：切换升降序
 
 # ---- 固定落点（控件本身没有可 OCR 的完整文案时用；均在上述 ROI 内）--------------
 HUB_MENU_POINT = (664, 1247)
@@ -357,6 +367,49 @@ def _goto_gem_page(context: Context) -> bool:
         time.sleep(1.0)
     logger.error("宝石合成：6 步之内没能走到宝石页，放弃本次任务。")
     return False
+
+
+def _ensure_sort_ascending(context: Context) -> None:
+    """进入宝石页「合成」后，第一时间把卡位排序切到「等级 · 从低到高」。
+
+    实机（2026-10-30，720x1280）：
+      · 排序字段名「等级」显示在 (477,649)，点它弹字段下拉（第一项「等级」在 (508,717)）；
+      · 方向切换点是字段右侧的倒三角 (669,664)：默认「从高到低」，点一次变「从低到高」。
+    方向不靠 OCR 读三角图标（太小、会被误读成「三/天」），而是按卡位第一行排列判断：
+    首格等级 > 末格等级 = 降序，需要点倒三角切换；升序/等级相同则不动。
+    """
+    # 1. 字段已经是「等级」就不动；否则点开下拉，选第一项「等级」。
+    lines = _scan(context)
+    if _pick(lines, ROI_SORT_FIELD, "等级") is None:
+        _click(context, SORT_FIELD_POINT)
+        time.sleep(0.6)
+        lines = _scan(context)
+        if _pick(lines, ROI_SORT_DROPDOWN, "等级") is not None:
+            _click(context, SORT_DROPDOWN_LEVEL_POINT)
+            time.sleep(0.8)
+        else:
+            logger.warning("宝石合成：排序字段下拉没展开或没认到「等级」，跳过排序切换。")
+            return
+
+    # 2. 方向：看卡位第一行首末格等级，降序（首 > 末）则点倒三角切升序。
+    cards = _scan_cards(context)
+    first_row = _first_row_cards(cards)
+    if len(first_row) >= 2 and first_row[0].level > first_row[-1].level:
+        _click(context, SORT_TOGGLE_POINT)
+        time.sleep(0.8)
+        logger.debug("宝石合成：排序已切到「等级 · 从低到高」。")
+    else:
+        logger.debug("宝石合成：排序已是「等级 · 从低到高」，无需切换。")
+
+
+def _first_row_cards(cards: list[_Card]) -> list[_Card]:
+    """取卡位第一行（point.y 最小的那一行）按 x 升序的卡片。"""
+    if not cards:
+        return []
+    top_y = min(card.point[1] for card in cards)
+    row = [card for card in cards if abs(card.point[1] - top_y) <= GRID_DY // 2]
+    row.sort(key=lambda card: card.point[0])
+    return row
 
 
 def _scan_cards(context: Context, image: Any = None) -> list[_Card]:
@@ -636,6 +689,10 @@ class GemSynthesis(CustomAction):
             if is_stopping(context):
                 logger.info("宝石合成：收到停止请求，已中断。")
             return CustomAction.RunResult(success=False)
+
+        # 进入合成页后第一时间把排序切到「等级 · 从低到高」：
+        # 合成是按等级从低到高逐级做的，低等级排到列表前部能减少每轮的卡位查找开销。
+        _ensure_sort_ascending(context)
 
         expected = RATE_THREE if need == 3 else RATE_TWO
         total_done = 0

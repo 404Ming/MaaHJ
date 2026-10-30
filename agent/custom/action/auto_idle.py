@@ -3,7 +3,7 @@
 流程（实机 720x1280 逐跳核对）：
   主页（惑星之间）右下「战斗列表」→ 战斗列表页 →「自动挂机」
   → 「选择要挂机的副本」弹窗：底部「重置」清空历史勾选，
-    再按任务设置逐个系列展开 → 点开副本卡片（弹窗标题 = 副本名）→ 勾选目标难度 →「确定」
+    再按任务设置逐个系列**模板定位直达副本** → 勾选目标难度 →「确定」
   → 外层「确定」→ 等待战斗画面出现「自动挂机中」/「停止挂机」= 挂机已启动；
     没认到就重新走一遍「自动挂机」流程（有界重试）。
 
@@ -12,10 +12,20 @@
   后选的 case 覆盖先选的），所以「野猪统领-普通」和「野猪统领-困难」必须是两个独立节点。
   本模块的 `SERIES` 表是唯一事实来源：Pipeline 载体节点和 interface 选项都由它生成。
 
-实机结论（决定下面这些常量）：
-  · 「重置」会把整张弹窗里所有副本的勾选清零（实测点完野猪统领由 1/2 变 0/2）；
-  · 副本卡片的难度勾选会**持久化**（重开弹窗仍是勾选态），所以必须先重置再按设置勾；
-  · 副本卡片上只有立绘 + 右下角「已选/总数」，没有可 OCR 的名字 → 只能点开读弹窗标题；
+实机结论（决定下面这些常量与算法）：
+  · 「重置」会把整张弹窗里所有副本的勾选清零；副本卡片的难度勾选会**持久化**
+    （重开弹窗仍是勾选态），所以必须先重置再按设置勾；
+  · 副本卡片上只有立绘 + 右下角「已选/总数」，**没有可 OCR 的名字**；
+    为了定位副本而逐张点开读弹窗标题是"打开查看"，每张要 0.5~3.5s —— 已废弃；
+  · 改用**立绘模板匹配**定位：31 张模板（`image/AutoIdle/dungeon/<node_prefix>.png`，
+    卡片左 135px、避开右下角计数）实机逐系列验证 —— 同副本 score 0.990~1.000，
+    跨系列最高 0.583，阈值 0.8 两侧都有 0.19 以上余量；
+  · 模板必须采自**卡片未选中态**（即「重置」之后的样子）：卡片被勾上会变成金色描边+
+    提亮的形态，同一张卡的模板分从 1.000 掉到认不出来（S5_05 就因此整张吊死过）；
+  · 模板匹配不能跨滚动位置使用：卡片必须完整落在 `_DIALOG_LIST_ROI` 内才命中，
+    所以「滚动找卡片」与「匹配」交替进行，每轮只截一帧；
+  · 弹窗内容只比一屏高约 1/3（回顶/到底各滑一次就能覆盖全部 5 个系列），
+    所以找系列横幅最多滑两次 —— 原来"回顶 4 连滑 + 逐屏 14 连滑"全是多余的；
   · 难度行的圆形勾选框固定在 x≈517，选中态是**亮金色对勾**（亮金像素 ~171，未选中 ~12）；
   · 传说副本的难度行是「<副本名>难度N」，武器副本是「<副本名>-普通 / -困难」，
     神骸试炼的非传说副本只有一行「<副本名>」（无难度后缀）。
@@ -23,7 +33,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -39,11 +48,9 @@ from utils.params import parse_params
 from .dungeon_challenge import (
     _back_to_hub,
     _box_center_y,
-    _on_hub,
     _screencap,
 )
-from .gameplay_challenge import _ocr
-from .machine_god_descent import _click_box, _find_contains, _find_in
+from .machine_god_descent import _click_box
 
 # ---- 任务设置载体节点（interface.json 的选项覆写它们）--------------------------------
 _FLAG_PREFIX = "AutoIdle"
@@ -153,6 +160,11 @@ class Dungeon:
     node_prefix: str
 
     @property
+    def template(self) -> str:
+        """卡片立绘模板路径（相对 resource/base/image）。"""
+        return f"AutoIdle/dungeon/{self.node_prefix}.png"
+
+    @property
     def difficulties(self) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
         """该副本实际提供的难度（已去掉本系列不该出现的档位）。"""
         hidden = _HIDDEN_DIFFS.get(self.series, frozenset()) if self.kind == "weapon" else frozenset()
@@ -187,6 +199,9 @@ def _build_dungeons() -> tuple[Dungeon, ...]:
 
 DUNGEONS: tuple[Dungeon, ...] = _build_dungeons()
 _SERIES_KEYS: tuple[str, ...] = tuple(key for _name, key, _items in SERIES)
+_DUNGEONS_BY_SERIES: dict[str, tuple[Dungeon, ...]] = {
+    name: tuple(d for d in DUNGEONS if d.series == name) for name, _key, _items in SERIES
+}
 
 
 def flag_nodes() -> tuple[str, ...]:
@@ -194,7 +209,14 @@ def flag_nodes() -> tuple[str, ...]:
     return tuple(d.flag(key) for d in DUNGEONS for key, _name, _alias in d.difficulties)
 
 
+# ---- 识别节点名（每次 run_recognition 现传 pipeline，不依赖 Pipeline 里预定义）----------
+_OCR_NODE = "AutoIdle_OCR"
+_TPL_NODE = "AutoIdle_Tpl"
+
 # ---- 主页 / 战斗列表页 ---------------------------------------------------------------
+# 主页判定锚点：底部导航第一个按钮（实测 (0,1180,170,100) 内的「惑星之间」）。
+_HUB_ROI = (0, 1180, 170, 100)
+_HUB_TEXT = "惑星之间"
 # 主页右侧功能列最下面一项（实测 OCR box (610,1100,79,24)）。主页左侧「惑星之间」是底部导航，
 # 「战斗列表」只出现在右侧这一列，所以 ROI 不会和底部导航打架。
 _HUB_BATTLE_LIST_ROI = (540, 1060, 180, 110)
@@ -214,44 +236,39 @@ _AUTO_BUTTON_TEXT = "自动挂机"
 # ---- 「选择要挂机的副本」弹窗 -------------------------------------------------------
 _DIALOG_TITLE_ROI = (170, 125, 400, 75)
 _DIALOG_TITLE_TEXT = "选择要挂机的副本"
-# 弹窗内可滚动的内容区（底部「重置 / 确定」条固定，y≈960 以下不要滑）。
+# 弹窗内可滚动的内容区（底部「重置 / 确定」条固定，y≈960 以下不要滑，也不要点）。
 _DIALOG_LIST_ROI = (40, 180, 640, 770)
-_DIALOG_SCROLL_TOP = (360, 320, 360, 900)
-_DIALOG_SCROLL_DOWN = (360, 870, 360, 520)
+# 往下扫的步长刻意小于"一屏 - 一张卡"（770-88=682）：保证每一行卡片在某一屏里**完整**出现，
+# 既不会跳过一行，也不会因为卡片压在视察区边缘而漏匹配。
+_SCROLL_LIST_DOWN = ((360, 760), (360, 560))
+# 回顶可以一次滑得远一点（滑过头无所谓，反正要的是顶）。
+_SCROLL_LIST_UP = ((360, 300), (360, 950))
+_SCROLL_DURATION = 400
 _RESET_ROI = (55, 1000, 130, 70)
 _RESET_TEXT = "重置"
 _DIALOG_CONFIRM_ROI = (270, 975, 180, 60)
 _DIALOG_CONFIRM_TEXT = "确定"
 
-# 副本卡片栅格（实测 720x1280：横幅高 170、3 列卡片约 200x90、行距 120）
-# 横幅顶部 ≈ 横幅艺术字 OCR 框的 y；第一行卡片中心 = 横幅顶部 + 225（实测 217~238）。
-_CARD_X = (154, 364, 574)
-_CARD_ROW1_OFFSET = 225
-_CARD_ROW_STEP = 120
-_CARDS_PER_ROW = 3
-_CARD_ROW_MAX = 3
-_CARD_SAFE_BOTTOM = 920  # 卡片中心超过它就先滚动，否则点了会落到「重置/确定」条上
-# 卡片金色描边检测：一行卡片的上/下边框是长金色横线（3 张卡 ≈600px 连续金色）
-# ⚠️ 卡片**净高实测 87~88px**（一行 3 张 200x88），行距才是 120。原来写成 100~140
-# 把它们全过滤掉了，`_card_rows` 永远返回空 → `_ensure_expanded` 永远认为"没展开"
-# 而去点横幅、把本来展开的系列收起来，后面所有坐标全错（漏「野猪统领」的真凶）。
-_GOLD_EDGE_MIN_PX = 150
-_GOLD_EDGE_SLACK = 4  # 金线 y 的抖动容差
-_CARD_HALF_H = 44  # 卡片净高 88 → 上边框到中心 44
-# 卡片列（实测 3 张卡：x 54~254 / 264~464 / 474~674，卡间各留 10px 缝）
-_CARD_BOX_X = ((54, 254), (264, 464), (474, 674))
-_CARD_GAP_X = ((254, 264), (464, 474))
-_CARD_GAP_MAX = 6  # 卡片行在卡缝里应该是全黑的
-_CARD_COVER_MIN = 0.8  # 有卡的那一列，边框线基本盖满
-_CARD_COVER_EMPTY = 0.15  # 没卡的那一列，边框线基本没有
+# 卡片实宽（模板只裁了卡片左 135px，模板框左缘 = 卡片左缘，点击中心要 +卡宽/2）。
+_CARD_WIDTH = 200
+
+# 一次性向下扫弹窗的最多屏数 / 回顶的最多滑数（都靠"画面不变"提前收工）。
+_SCAN_MAX_STEPS = 14
+_SCROLL_MAX_STEPS = 8
+# "画面是否还在动"的比较区域（列表内容区）与阈值，标定过程见 `_same_scene`。
+_LIST_DIFF_BOX = (180, 950, 40, 680)
+_SCENE_SAME_MAX_DIFF = 8.0
+# 立绘模板匹配阈值：实机逐系列实测（重置后=卡片未选中态）同副本 0.990~1.000、
+# 跨系列最高 0.583，0.8 落在中间，两侧余量都超过 0.19。
+_DUNGEON_TPL_THRESHOLD = 0.8
 
 # ---- 副本难度弹窗 --------------------------------------------------------------------
-# 标题（实测「野猪统领」box (291,402,136,39)）
-_MODAL_TITLE_ROI = (90, 380, 540, 55)
-# 难度行列表区（实测行 y=505/580/654/729，行距约 75）
+# 难度行列表区（实测行 y=505/580/654/729，行距约 75，一屏 4 行）。
+# ⚠️ 认副本只认这里的难度行文案（普通字体、带副本名），不去 OCR 弹窗标题：
+#    标题是艺术字，OCR 会掉字（实测「青鬃熊」只认出「王」），拿它认身份必然出错。
 _MODAL_ROWS_ROI = (120, 480, 480, 310)
-_MODAL_SCROLL_UP = (350, 700, 350, 560)
-_MODAL_SCROLL_DOWN = (350, 560, 350, 700)
+# 手指上滑 → 弹窗内列表往下翻，露出更高难度（难度 5~10 要滚才看得见）
+_MODAL_SCROLL_DOWN = ((350, 700), (350, 560))
 # 难度最多 10 档、一屏 4 行：每次下滑 140px，留 5 次足够滚到最底（多滚无害，认不到就停）。
 _MODAL_SCROLL_TRIES = 5
 # 圆形勾选框的固定横坐标（实测中心 x≈517，直径约 45）
@@ -259,8 +276,10 @@ _MODAL_CIRCLE_X = 517
 _MODAL_CIRCLE_HALF = 22
 # 选中态 = 亮金色对勾：实测亮金像素 171，未选中 12（阈值取 60 留足余量）。
 _CIRCLE_CHECKED_MIN = 60
-# 弹窗「确定」（实测 (329,804,61,36)）；注意别和外层弹窗的「确定」(y≈993) 混用。
-_MODAL_CONFIRM_ROI = (270, 780, 180, 70)
+# 弹窗「确定」：weapon 弹窗实测 (329,804,61,36)，legend 弹窗（难度行更多）实测确定在
+# y≈857 —— ROI 必须同时盖住两者（770~930），否则 legend 弹窗关不掉、滞留在屏幕上
+# 挡住后续所有点击。下界 930 < 外层「确定」y≈993，不会混。
+_MODAL_CONFIRM_ROI = (270, 770, 180, 160)
 
 # ---- 挂机运行态 ----------------------------------------------------------------------
 # 战斗画面里的浮层：实测「自动挂机中」(303,869,107,24)、「停止挂机」(300,1189,120,37)。
@@ -268,12 +287,20 @@ _IDLING_ROI = (0, 780, 720, 460)
 _IDLING_TEXTS = ("自动挂机中", "停止挂机")
 
 # ---- 节奏 ----------------------------------------------------------------------------
-_CLICK_SETTLE = 1.2
-_SCROLL_SETTLE = 1.0
-_MODAL_OPEN_TIMEOUT = 3.5
-_DIALOG_OPEN_TIMEOUT = 10.0
-_LIST_OPEN_TIMEOUT = 15.0
+# 一次 ADB screencap ≈180ms、单次 ROI OCR ≈150~400ms：能共用一帧就共用一帧。
+_CLICK_SETTLE = 0.6  # 点按钮/确认弹窗后的界面刷新
+_CLICK_TICK = 0.3  # 连续点同一弹窗里的勾选框（不截图，只等 UI 响应）
+_SCROLL_SETTLE = 0.35  # 滑动后的惯性落定
+_EXPAND_SETTLE = 0.5  # 点系列横幅展开后的动画
+_MODAL_OPEN_TIMEOUT = 2.5  # 点开卡片后等难度弹窗（认到目标难度行即返回）
+_MODAL_OPEN_POLL = 0.25
+_DIALOG_OPEN_TIMEOUT = 8.0
+_LIST_OPEN_TIMEOUT = 12.0
+_POLL_STEP = 0.4
 _IDLING_TIMEOUT = 60.0
+_IDLING_POLL = 0.8
+# 点完外层「确定」后先给游戏几秒切场景，之后再看到「没有正在战斗中的副本」才算真失败。
+_IDLING_FAIL_GRACE = 3.0
 # 没进挂机就重走「自动挂机」流程的轮数（用户要求：不成功就再点一次）。
 _MAX_ATTEMPTS = 3
 
@@ -286,10 +313,9 @@ def _swipe(context: Context, begin: Sequence[int], end: Sequence[int], duration:
     context.tasker.controller.post_swipe(int(begin[0]), int(begin[1]), int(end[0]), int(end[1]), duration).wait()
 
 
-def _ocr_lines(context: Context, roi: Sequence[int]) -> list[tuple[str, Any]]:
-    """ROI 内 OCR，按 y 升序返回 [(文本, 识别框)]：弹窗里同一屏要按行判断，顺序很重要。"""
-    lines = [(str(text).strip(), box) for text, box in _ocr(context, roi) if str(text).strip()]
-    return sorted(lines, key=lambda item: _box_center_y(item[1]))
+def _frame(context: Context) -> Any:
+    """截一帧（BGR）。失败返回 None —— 调用方一律当"识别不到"处理。"""
+    return _screencap(context)
 
 
 def box_top(box: Any) -> float:
@@ -299,70 +325,137 @@ def box_top(box: Any) -> float:
     return float(box.y)
 
 
-def _wait_text(
-    context: Context,
-    roi: Sequence[int],
-    wanted: str,
-    timeout: float,
-    *,
-    exact: bool = False,
-) -> Any:
+# ---- 一帧多用：OCR / 文本查找 / 模板匹配 --------------------------------------------
+def _ocr_lines(context: Context, roi: Sequence[int], img: Any = None) -> list[tuple[str, Any]]:
+    """ROI 内 OCR，按 y 升序返回 [(文本, 识别框)]：弹窗里同一屏要按行判断，顺序很重要。
+
+    `img` 给了就在这一帧上识别（不重新截图）。同一屏要判多处时共用一帧能省掉大头 ——
+    一次 ADB screencap ≈180ms，而这里每个判断以前都会各自截一帧。
+    """
+    image = img if img is not None else _frame(context)
+    if image is None:
+        return []
+    detail = context.run_recognition(
+        _OCR_NODE,
+        image,
+        {_OCR_NODE: {"recognition": {"type": "OCR", "param": {"roi": list(roi)}}, "action": {"type": "DoNothing"}}},
+    )
+    if detail is None or not getattr(detail, "hit", False):
+        return []
+    lines = [
+        (str(result.text).strip(), result.box) for result in (detail.all_results or []) if str(result.text).strip()
+    ]
+    return sorted(lines, key=lambda item: _box_center_y(item[1]))
+
+
+def _pick_text(lines: Sequence[tuple[str, Any]], wanted: str) -> Any:
+    """在一屏 OCR 结果里找文本：先全等、再包含（都忽略空格）。找不到返回 None。"""
+    target = wanted.replace(" ", "")
+    for text, box in lines:
+        if text.replace(" ", "") == target:
+            return box
+    for text, box in lines:
+        if target in text.replace(" ", ""):
+            return box
+    return None
+
+
+def _find_text(context: Context, roi: Sequence[int], wanted: str, img: Any = None) -> Any:
+    """ROI 里找文本（全等优先、退化为包含）。返回识别框或 None。
+
+    以前"全等"和"包含"是两次独立调用（`_find_in` + `_find_contains`），每次各截一帧、
+    各 OCR 一遍；合成一次只花一半。
+    """
+    return _pick_text(_ocr_lines(context, roi, img), wanted)
+
+
+def _match_template(context: Context, img: Any, template: str, roi: Sequence[int] = _DIALOG_LIST_ROI) -> Any:
+    """在**已截好的那一帧**上做一次 TemplateMatch，命中返回识别框。"""
+    detail = context.run_recognition(
+        _TPL_NODE,
+        img,
+        {
+            _TPL_NODE: {
+                "recognition": {
+                    "type": "TemplateMatch",
+                    "param": {"template": [template], "threshold": [_DUNGEON_TPL_THRESHOLD], "roi": list(roi)},
+                },
+                "action": {"type": "DoNothing"},
+            }
+        },
+    )
+    if detail is None or not getattr(detail, "hit", False):
+        return None
+    return getattr(detail, "box", None)
+
+
+def _wait_text(context: Context, roi: Sequence[int], wanted: str, timeout: float, *, exact: bool = False) -> Any:
     """在 ROI 里有界等待某文本出现（默认包含匹配），命中返回识别框。"""
     deadline = time.time() + timeout
     while True:
-        box = _find_in(context, roi, wanted) if exact else _find_contains(context, roi, wanted)
+        lines = _ocr_lines(context, roi)
+        if exact:
+            target = wanted.replace(" ", "")
+            box = next((b for t, b in lines if t.replace(" ", "") == target), None)
+        else:
+            box = _pick_text(lines, wanted)
         if box is not None:
             return box
-        if time.time() >= deadline:
+        if is_stopping(context) or time.time() >= deadline:
             return None
-        time.sleep(0.6)
+        time.sleep(_POLL_STEP)
 
 
 # ---- 页面判定 -----------------------------------------------------------------------
-def _dialog_open(context: Context) -> bool:
-    return _find_contains(context, _DIALOG_TITLE_ROI, _DIALOG_TITLE_TEXT) is not None
+def _probe_page(context: Context, img: Any) -> str:
+    """在**同一帧**上判当前页面：'dialog' / 'list' / 'hub' / 'unknown'。"""
+    if _find_text(context, _DIALOG_TITLE_ROI, _DIALOG_TITLE_TEXT, img) is not None:
+        return "dialog"
+    if _find_text(context, _LIST_TITLE_ROI, _LIST_TITLE_TEXT, img) is not None:
+        return "list"
+    if _find_text(context, _HUB_ROI, _HUB_TEXT, img) is not None:
+        return "hub"
+    return "unknown"
 
 
-def _on_list_page(context: Context) -> bool:
-    """战斗列表页：左上标题是「战斗列表」，且右侧有「自动挂机」按钮。"""
-    if _find_contains(context, _LIST_TITLE_ROI, _LIST_TITLE_TEXT) is None:
-        return False
-    return _find_in(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT) is not None
+def _dialog_open(context: Context, img: Any = None) -> bool:
+    return _find_text(context, _DIALOG_TITLE_ROI, _DIALOG_TITLE_TEXT, img) is not None
 
 
-def _idle_not_running(context: Context) -> bool:
+def _idle_not_running(context: Context, img: Any) -> bool:
     """战斗列表页顶部明说「没有正在战斗中的副本」→ 挂机确实没起来。"""
-    return _find_contains(context, _LIST_STATUS_ROI, _LIST_IDLE_EMPTY_TEXT) is not None
+    return _find_text(context, _LIST_STATUS_ROI, _LIST_IDLE_EMPTY_TEXT, img) is not None
 
 
 def _enter_dialog(context: Context) -> bool:
     """从任意页面走到「选择要挂机的副本」弹窗。"""
-    if _dialog_open(context):
+    img = _frame(context)
+    page = _probe_page(context, img)
+    if page == "dialog":
         return True
-    if not _on_list_page(context):
-        if not _on_hub(context):
+
+    if page != "list":
+        if page != "hub":
             logger.debug("自动挂机：当前不在主页，先返回主页。")
             if not _back_to_hub(context):
                 logger.error("自动挂机：回不到主页，本次放弃。")
                 return False
-        if not _find_in(context, _HUB_BATTLE_LIST_ROI, _HUB_BATTLE_LIST_TEXT):
-            # 主页右下角「战斗列表」认不到就退到"包含"匹配（文字偶尔带描边/粘连）
-            entry = _find_contains(context, _HUB_BATTLE_LIST_ROI, _HUB_BATTLE_LIST_TEXT)
-            if entry is None:
-                logger.error("自动挂机：主页上没认出「战斗列表」按钮，本次放弃。")
-                return False
-        else:
-            entry = _find_in(context, _HUB_BATTLE_LIST_ROI, _HUB_BATTLE_LIST_TEXT)
+            img = _frame(context)
+        entry = _find_text(context, _HUB_BATTLE_LIST_ROI, _HUB_BATTLE_LIST_TEXT, img)
+        if entry is None:
+            logger.error("自动挂机：主页上没认出「战斗列表」按钮，本次放弃。")
+            return False
         logger.debug("自动挂机：点主页「战斗列表」。")
         _click_box(context, entry)
         if _wait_text(context, _LIST_TITLE_ROI, _LIST_TITLE_TEXT, _LIST_OPEN_TIMEOUT) is None:
             logger.error("自动挂机：进不去战斗列表页，本次放弃。")
             return False
-        time.sleep(_CLICK_SETTLE)
+        # 列表条目是异步加载的：「参与中」有几条会把「自动挂机」按钮的位置推下去，
+        # 等半秒让布局落定再取坐标，比原来固定睡 1.2s 快、也不会点空。
+        time.sleep(_SCROLL_SETTLE)
 
-    button = _find_in(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT)
-    if button is None:
-        button = _find_contains(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT)
+    img = _frame(context)
+    button = _find_text(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT, img)
     if button is None:
         logger.error("自动挂机：战斗列表页上没认出「自动挂机」按钮，本次放弃。")
         return False
@@ -371,235 +464,226 @@ def _enter_dialog(context: Context) -> bool:
     if _wait_text(context, _DIALOG_TITLE_ROI, _DIALOG_TITLE_TEXT, _DIALOG_OPEN_TIMEOUT) is None:
         logger.error("自动挂机：「选择要挂机的副本」弹窗没出来，本次放弃。")
         return False
-    time.sleep(_CLICK_SETTLE)
     return True
 
 
 # ---- 弹窗内导航 ---------------------------------------------------------------------
-def _scroll_dialog_top(context: Context) -> None:
-    for _ in range(4):
-        _swipe(context, _DIALOG_SCROLL_TOP[0:2], _DIALOG_SCROLL_TOP[2:4], 300)
-        time.sleep(0.5)
+def _scroll_list(context: Context, *, up: bool) -> None:
+    begin, end = _SCROLL_LIST_UP if up else _SCROLL_LIST_DOWN
+    _swipe(context, begin, end, _SCROLL_DURATION)
+
+
+def _same_scene(prev: Any, cur: Any) -> bool:
+    """两帧是否停在"同一屏"：用来判断列表已经滑到头了。
+
+    没有这个判据就只能靠固定次数滑动去"猜"到底在哪 —— 滑多了白等（原来"回顶 4 连滑"
+    就是这么来的）、滑少了漏系列。
+    判据用列表区域的平均绝对差，阈值由实机实测标定：
+      · 静止两帧 0.000~0.235（弹窗背景有轻微呼吸光效，不可能恒等于 0）；
+      · 真滚一屏 62.09；
+      · 已经到底再滑（只回弹一下）3.55。
+    取 8.0 落在"回弹"和"真滚动"之间，两侧都有 4 倍以上余量。
+    """
+    if prev is None or cur is None:
+        return False
+    if getattr(prev, "shape", None) != getattr(cur, "shape", None):
+        return False
+    y0, y1, x0, x1 = _LIST_DIFF_BOX
+    delta = prev[y0:y1, x0:x1].astype("int16") - cur[y0:y1, x0:x1].astype("int16")
+    return float(abs(delta).mean()) < _SCENE_SAME_MAX_DIFF
+
+
+def _scroll_and_frame(context: Context, *, up: bool, prev: Any = None) -> tuple[Any, bool]:
+    """滑一屏并返回新帧；返回 (新帧, 画面是否变化)。画面不变 = 已经滑到头。
+
+    `prev` 传进来就复用调用方手上那一帧当基准，省掉一次截图（≈180ms）。
+    """
+    if prev is None:
+        prev = _frame(context)
+    _scroll_list(context, up=up)
     time.sleep(_SCROLL_SETTLE)
+    img = _frame(context)
+    return img, not _same_scene(prev, img)
 
 
-def _find_banner(context: Context, series_key: str) -> Any:
-    """在当前视野里找某系列的横幅（艺术字 OCR 只能认出前两字，按包含匹配）。"""
-    best = None
-    for text, box in _ocr_lines(context, _DIALOG_LIST_ROI):
-        if series_key in text.replace(" ", ""):
-            if best is None or _box_center_y(box) < _box_center_y(best):
-                best = box
+def _scroll_to_top(context: Context, img: Any = None) -> Any:
+    """滚到弹窗列表顶部并返回那一帧（"画面不再变化"为到顶判据）。"""
+    if img is None:
+        img = _frame(context)
+    for _ in range(_SCROLL_MAX_STEPS):
+        img, changed = _scroll_and_frame(context, up=True, prev=img)
+        if not changed:
+            break
+    return img
+
+
+def _close_stuck_modal(context: Context, img: Any = None) -> None:
+    """难度弹窗没关上时兜底关掉：它盖住整个弹窗会让后面的展开/识别全部失效。
+
+    实测踩过：某次点开副本卡片后 OCR 没读出难度行，弹窗就留在屏幕上，于是后面所有
+    横幅/卡片点击都打在弹窗后面，整个系列"谁都点不动"。
+    """
+    box = _find_text(context, _MODAL_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT, img)
+    if box is None:
+        return
+    logger.debug("自动挂机：发现难度弹窗还开着，先点「确定」关掉。")
+    _click_box(context, box)
+    time.sleep(_CLICK_SETTLE)
+
+
+# ---- 模板定位副本 -------------------------------------------------------------------
+def _locate_cards(context: Context, img: Any, dungeons: Sequence[Dungeon]) -> list[tuple[Dungeon, int, int]]:
+    """在**同一帧**上批量定位副本卡片，返回 [(副本, 点击中心 x, 点击中心 y)]（上→下、左→右）。
+
+    每个目标一次 TemplateMatch，但**只截一次图**：screencap 才是大头，匹配本身只要几毫秒。
+    点击中心：模板是"卡片左 135px"的裁剪，所以 x = 模板左缘 + 卡片半宽(100)；
+    y = 模板上缘 + 模板高/2（模板高 = 卡片净高 88）。
+    """
+    hits: list[tuple[Dungeon, int, int]] = []
+    for dungeon in dungeons:
+        box = _match_template(context, img, dungeon.template)
+        if box is None:
+            continue
+        hits.append((dungeon, int(float(box[0]) + _CARD_WIDTH / 2), int(box_top(box) + float(box[3]) / 2)))
+    hits.sort(key=lambda item: (item[2], item[1]))
+    return hits
+
+
+def _series_expanded(context: Context, img: Any, series_name: str) -> bool:
+    """该系列是否已展开：判据是"这个系列的任意一张卡片能被模板认出来"。
+
+    比"金色描边行数推算"稳得多（描边会压在立绘暗部上、认不全），也比"点一下看看"安全
+    （对已展开的系列再点一下会把它收起来，整屏位置全乱）。
+    """
+    return any(
+        _match_template(context, img, dungeon.template) is not None for dungeon in _DUNGEONS_BY_SERIES[series_name]
+    )
+
+
+def _find_pending_banner(context: Context, img: Any, pending: dict[str, Dungeon]) -> tuple[str, Any] | None:
+    """当前屏里"还有未处理副本"的系列横幅，返回 (系列名, 横幅框)；取最靠上的一个。"""
+    waiting = {dungeon.series for dungeon in pending.values()}
+    if not waiting:
+        return None
+    best: tuple[str, Any] | None = None
+    for text, box in _ocr_lines(context, _DIALOG_LIST_ROI, img):
+        plain = text.replace(" ", "")
+        for series_name, series_key, _items in SERIES:
+            if series_name not in waiting or series_key not in plain:
+                continue
+            if best is None or _box_center_y(box) < _box_center_y(best[1]):
+                best = (series_name, box)
     return best
 
 
-def _locate_banner(context: Context, series_key: str) -> Any:
-    """滚到能看见目标系列横幅的位置；返回横幅识别框（含系列名艺术字的那一段）。
+def _scan_pass(
+    context: Context,
+    selected: dict[str, set[str]],
+    pending: dict[str, Dungeon],
+    expanded_series: set[str],
+    expand_clicks: dict[str, int],
+    img: Any,
+) -> Any:
+    """从给定那一帧开始**往下**扫：模板命中就点入勾选，遇到未展开的目标系列就展开。
 
-    先看当前视野，再回到列表顶部逐屏往下找。步长别太大：横幅高 170，
-    一次滑 350px 很容易"跳"过横幅让 OCR 始终只看到半截艺术字而认不出。
+    一屏只截一帧：① 先把本屏能模板定位到的目标全部点入勾完；
+    ② 本屏有目标系列但没命中 → 没展开就点横幅，已展开就往下滚（目标在下面几行）；
+    ③ 画面滑不动了 = 到底，收工。
     """
-    box = _find_banner(context, series_key)
-    if box is not None:
-        return box
-    _scroll_dialog_top(context)
-    box = _find_banner(context, series_key)
-    if box is not None:
-        return box
-    for _ in range(14):
-        _swipe(context, [360, 840], [360, 640], 350)
-        time.sleep(0.8)
-        box = _find_banner(context, series_key)
-        if box is not None:
-            return box
-    return None
+    for _screen in range(_SCAN_MAX_STEPS):
+        if not pending:
+            break
+        if img is None:
+            img = _frame(context)
+            if img is None:
+                break
+        # ① 本屏能定位到的目标：模板命中即点入、勾难度、关弹窗
+        for dungeon, cx, cy in _locate_cards(context, img, list(pending.values())):
+            if dungeon.title not in pending:
+                continue
+            expanded_series.add(dungeon.series)
+            _open_and_select(context, dungeon, cx, cy, selected[dungeon.title])
+            pending.pop(dungeon.title, None)
+        if not pending:
+            break
+
+        # ② 本屏还有目标的系列：没展开就点横幅展开（最多两次，第二次是自纠正）
+        banner = _find_pending_banner(context, img, pending)
+        if banner is not None:
+            series_name, box = banner
+            if series_name not in expanded_series:
+                if _series_expanded(context, img, series_name):
+                    expanded_series.add(series_name)
+                elif expand_clicks.get(series_name, 0) < 2:
+                    expand_clicks[series_name] = expand_clicks.get(series_name, 0) + 1
+                    logger.debug("自动挂机：展开「{}」系列。", series_name)
+                    _click_box(context, box)
+                    time.sleep(_EXPAND_SETTLE)
+                    img = _frame(context)
+                    continue
+                else:
+                    expanded_series.add(series_name)
+
+        # ③ 往下滚一屏；滑不动说明到底了。复用手中这一帧当基准，少截一次图
+        img, changed = _scroll_and_frame(context, up=False, prev=img)
+        if not changed:
+            break
+    return img
 
 
-def _gold_lines(img: Any) -> list[tuple[int, int, int, bool]]:
-    """画面里的横向亮线：[(y, 金色像素数, 卡缝里的金色数, 是否卡片上边框)]。
+def _scan_dialog(context: Context, selected: dict[str, set[str]]) -> None:
+    """把设置里的（副本 × 难度）在弹窗里勾上。
 
-    只看"金线计数/长度"区分不了卡片和横幅：横幅金框同样是整条亮线（实测计数 600），
-    被艺术字压住时还会断成 166px 的段，长得跟一张卡的边框一模一样（实测把「始源」
-    横幅金框当成卡片行，直接点进横幅里）。两条实测差别最可靠：
-      · **卡缝**：3 张卡之间各留 10px 缝，卡片的边框线在缝里是纯黑（gaps=0）；
-        横幅金框横贯整条内容，缝里照样是金色（gaps≈20）。
-      · **列的覆盖率**：卡片上边框横贯整张卡（三列覆盖率≈0.9，且要么有卡、要么整列
-        没卡 ≈0）；立绘上的金色（头发/盔甲，实测 0.3~0.7）凑不出"每列都满"的形状。
+    先就着**当前滚动位置**往下扫一遍（弹窗刚打开/上一次操作后通常就在目标附近，省掉
+    "回顶"那几下），没扫完的再回顶补扫一遍。整个弹窗只比一屏高一点，两遍一定能覆盖。
     """
-    y0, y1 = 200, 975
-    band = img[y0:y1, 40:680].astype(int)
-    red, green, blue = band[:, :, 2], band[:, :, 1], band[:, :, 0]
-    gold = (red > 120) & (green > 90) & (blue < 110)
-    counts = gold.sum(axis=1)
-    groups: list[list[tuple[int, int, int, bool]]] = []
-    for i, count in enumerate(counts.tolist()):
-        if count < _GOLD_EDGE_MIN_PX:
-            continue
-        # band 从 x=40 开始截，索引要减掉
-        gaps = sum(int(gold[i, left - 40 : right - 40].sum()) for left, right in _CARD_GAP_X)
-        cover = [float(gold[i, left - 40 : right - 40].mean()) for left, right in _CARD_BOX_X]
-        is_card = (
-            gaps <= _CARD_GAP_MAX
-            and max(cover) >= _CARD_COVER_MIN
-            and all(c >= _CARD_COVER_MIN or c <= _CARD_COVER_EMPTY for c in cover)
-        )
-        y = y0 + i
-        item = (y, count, gaps, is_card)
-        # 只合并"紧挨着"的行（边框线通常占 1~2 行）：放宽到 3 会把边框和卡片立绘上的
-        # 金色行连成一大坨，行位置被平均到卡片中间（实测「烛之」第 2 行因此算错 29px）。
-        if groups and y - groups[-1][-1][0] <= 1:
-            groups[-1].append(item)
-        else:
-            groups.append([item])
-    return [
-        (
-            int(sum(y for y, _c, _g, _k in group) / len(group)),
-            max(c for _y, c, _g, _k in group),
-            min(g for _y, _c, g, _k in group),
-            max(group, key=lambda item: item[1])[3],
-        )
-        for group in groups
-    ]
-
-
-def _dump_frame(context: Context, tag: str) -> None:
-    """调试用（AUTOIDLE_DEBUG=1）：把当前帧存成 _test_out/dbg_<tag>.npy。"""
-    if not os.environ.get("AUTOIDLE_DEBUG"):
+    pending: dict[str, Dungeon] = {d.title: d for d in DUNGEONS if selected.get(d.title)}
+    if not pending:
         return
-    img = _screencap(context)
-    if img is None:
-        return
-    import numpy as np  # noqa: PLC0415 只有调试时才需要
+    logger.debug(
+        "自动挂机：按设置勾选 {} 个难度（{} 个副本）。",
+        sum(len(keys) for keys in selected.values()),
+        len(selected),
+    )
 
-    np.save(os.path.join("_test_out", f"dbg_{tag}.npy"), img)
-
-
-def _gold_dump(context: Context) -> str:
-    """诊断用：把当前画面的金线压成一行 "y/计数/缝/是否卡片行"。"""
-    img = _screencap(context)
-    if img is None:
-        return "无截图"
-    return " ".join(f"{y}/{count}/{gaps}/{1 if is_card else 0}" for y, count, gaps, is_card in _gold_lines(img))
-
-
-def _card_rows(context: Context, banner_top: float | None = None) -> list[int]:
-    """找出副本卡片的**行中心 y**（像素级，不依赖 OCR）。
-
-    判据见 `_gold_lines`（卡缝 + 列覆盖率）。卡片下边框压在立绘暗部渐变上，实测经常
-    认不出来（计数 ~143），所以不靠"上下边框成对"，而靠**相邻两行上边框正好差一个
-    行距 120** 的等间距链：链头 + 半个卡高 44 = 第一行中心，然后每 +120 一行。
-
-    banner_top 给了就只认该横幅下面那几行（下界 +30、上界 +620 容得下 3 行），
-    给 None 就返回全屏所有行。
-    """
-    img = _screencap(context)
-    if img is None:
-        return []
-    tops = [y for y, _count, _gaps, is_card in _gold_lines(img) if is_card]
-    if not tops:
-        return []
-
-    def in_window(y: float) -> bool:
-        if banner_top is None:
-            return 140 <= y <= _CARD_SAFE_BOTTOM
-        # 下界只留 +30：横幅被滚成"半截"时 OCR 框顶会显著偏低（实测「始源」滚到只剩
-        # 一条边时框顶 y=251，而它的第一行卡片中心才 315），卡太严会把第一行整行丢掉。
-        return banner_top + 30 < y < banner_top + 620
-
-    def has(target: float) -> bool:
-        return any(abs(target - t) <= _GOLD_EDGE_SLACK for t in tops)
-
-    # ① 120 等间距链：链头是第一行卡片的上边框
-    starts = [t for t in tops if has(t + _CARD_ROW_STEP) and in_window(t + _CARD_HALF_H)]
-    rows: list[int] = []
-    if starts:
-        y = min(starts)
-        while has(y) and len(rows) < _CARD_ROW_MAX:
-            center = y + _CARD_HALF_H
-            if in_window(center):
-                rows.append(center)
-            y += _CARD_ROW_STEP
-    if rows:
-        return rows
-
-    # ② 只有一行卡的系列：没有 120 邻居，单独一条也认（计数要求更高，免得被噪声骗）
-    singles = [t for t in tops if in_window(t + _CARD_HALF_H)]
-    if singles:
-        return [min(singles) + _CARD_HALF_H]
-    return []
-
-
-def _ensure_expanded(context: Context, series_key: str) -> float | None:
-    """确保系列展开且卡片可见，返回（已按滚动量修正的）横幅顶部 y；失败返回 None。
-
-    展开判定只认"横幅下方出现卡片金色描边"（`_card_rows`）—— 卡片的「0/2」小字
-    OCR 时灵时不灵，不能当判据。判定不成立时按两种情况处理：
-      ① 没展开 → 点横幅；
-      ② 展开了但卡片落在底部「重置/确定」条下面 → 往下滚，同时把横幅 y 一起减掉。
-    每次都只做一步、再判一次，绝不"没看到卡片就再点一下横幅"（会把刚展开的收起来）。
-    """
-    _close_stuck_modal(context)
-    box = _locate_banner(context, series_key)
-    if box is None:
-        logger.warning("自动挂机：滚动找不到「{}」系列横幅。", series_key)
-        return None
-    top = box_top(box)
-    if _card_rows(context, top):
-        return top
-
-    logger.debug("自动挂机：展开「{}」系列。", series_key)
-    _click_box(context, box)
-    time.sleep(_CLICK_SETTLE)
-
-    for _ in range(3):
-        if _card_rows(context, top):
-            return top
-        _swipe(context, [360, 840], [360, 700], 350)
-        time.sleep(0.8)
-        top -= 140
-        if _card_rows(context, top):
-            return top
-
-    # 滚了 3 屏还看不到卡片：多半是第一下把"本来就展开"的系列收起来了，再点一次
-    box = _locate_banner(context, series_key)
-    if box is None:
-        logger.warning("自动挂机：「{}」系列滚动后找不到横幅。", series_key)
-        return None
-    logger.debug("自动挂机：再点一次「{}」横幅（上一下把它收起来了）。", series_key)
-    _click_box(context, box)
-    time.sleep(_CLICK_SETTLE)
-    top = box_top(box)
-    for _ in range(3):
-        if _card_rows(context, top):
-            return top
-        _swipe(context, [360, 840], [360, 700], 350)
-        time.sleep(0.8)
-        top -= 140
-        if _card_rows(context, top):
-            return top
-    logger.warning("自动挂机：「{}」系列展开后仍看不到副本卡片。", series_key)
-    return None
+    # 已经确认展开过的系列：只要在这个系列里命中过任意一张卡，它必然展开着。
+    # ⚠️ 不能只靠 `_series_expanded` 现判：选中的卡片会变成金色描边+提亮的形态，
+    # 立绘模板（采自未选中态）认不出来 —— 一个系列里"本屏可见的卡都已经被选上、
+    # 还有目标在下一行"时就会误判成"没展开"而把系列收起来。
+    expanded_series: set[str] = set()
+    expand_clicks: dict[str, int] = {}
+    img = _scan_pass(context, selected, pending, expanded_series, expand_clicks, _frame(context))
+    if pending:
+        logger.debug("自动挂机：当前位置往下没扫完，回顶再补扫一遍。")
+        img = _scroll_to_top(context, img)
+        _scan_pass(context, selected, pending, expanded_series, expand_clicks, img)
+    if pending:
+        logger.warning("自动挂机：弹窗里没找到这些副本：{}", "、".join(sorted(pending)))
 
 
 # ---- 难度勾选 -----------------------------------------------------------------------
-def _circle_checked(context: Context, box: Any) -> bool:
-    """难度行的圆形勾选框是否为选中态（亮金色对勾）。"""
-    img = _screencap(context)
-    if img is None:
-        return False
+def _circle_checked(img: Any, box: Any, x: int = _MODAL_CIRCLE_X) -> bool:
+    """难度行的圆形勾选框是否为选中态（亮金色对勾）。在**给定的那一帧**上取样，不再截图。"""
     cy = int(_box_center_y(box))
-    x0 = max(0, _MODAL_CIRCLE_X - _MODAL_CIRCLE_HALF)
+    x0 = max(0, int(x) - _MODAL_CIRCLE_HALF)
     y0 = max(0, cy - _MODAL_CIRCLE_HALF)
     patch = img[y0 : y0 + _MODAL_CIRCLE_HALF * 2, x0 : x0 + _MODAL_CIRCLE_HALF * 2].astype(int)
     if patch.size == 0:
         return False
     green, red = patch[:, :, 1], patch[:, :, 2]
-    bright = int(((red > 170) & (green > 130)).sum())
-    return bright >= _CIRCLE_CHECKED_MIN
+    return int(((red > 170) & (green > 130)).sum()) >= _CIRCLE_CHECKED_MIN
 
 
 def _read_modal_rows(context: Context) -> list[tuple[str, Any]]:
     return _ocr_lines(context, _MODAL_ROWS_ROI)
+
+
+def _plain(text: str) -> str:
+    return text.replace(" ", "")
+
+
+def _has_keyword(rows: Sequence[tuple[str, Any]], keyword: str) -> bool:
+    return any(keyword in _plain(text) for text, _box in rows)
 
 
 def _alias_hit(text: str, alias: str) -> bool:
@@ -617,11 +701,11 @@ def _alias_hit(text: str, alias: str) -> bool:
     return False
 
 
-def _match_row(rows: list[tuple[str, Any]], dungeon: Dungeon, key: str) -> Any:
+def _match_row(rows: Sequence[tuple[str, Any]], dungeon: Dungeon, key: str) -> Any:
     """在一屏难度行里找目标难度对应的那一行。"""
     aliases = next(alias for k, _n, alias in dungeon.difficulties if k == key)
     for text, box in rows:
-        plain = text.replace(" ", "")
+        plain = _plain(text)
         if dungeon.keyword not in plain:
             continue
         if key == "Single":
@@ -632,290 +716,140 @@ def _match_row(rows: list[tuple[str, Any]], dungeon: Dungeon, key: str) -> Any:
     return None
 
 
+def _click_and_verify(context: Context, dungeon: Dungeon, batch: list[tuple[str, Any]]) -> tuple[set[str], Any]:
+    """把一批（同一滚动位置上的）难度一次点完，再截一帧统一验证；没勾上的补点一次。
+
+    返回 (确认勾上的 key 集合, 最后那一帧)。那一帧还能直接给 `_confirm_modal` 用 ——
+    弹窗没动，「确定」的位置不变，不用为了找它再截一次。
+    """
+    done: set[str] = set()
+    img: Any = None
+    for _attempt in range(2):
+        todo = [(key, box) for key, box in batch if key not in done]
+        if not todo:
+            break
+        for _key, box in todo:
+            _click_at(context, _MODAL_CIRCLE_X, int(_box_center_y(box)))
+            time.sleep(_CLICK_TICK)
+        img = _frame(context)
+        if img is None:
+            break
+        for key, box in todo:
+            if _circle_checked(img, box):
+                done.add(key)
+            elif _attempt == 0:
+                logger.debug("自动挂机：{}「{}」没勾上，补点一次。", dungeon.title, dungeon.labels.get(key, key))
+    return done, img
+
+
 def _select_difficulties(
     context: Context,
     dungeon: Dungeon,
     wanted: set[str],
     rows: list[tuple[str, Any]],
-) -> int:
-    """在难度弹窗里按设置勾选；返回实际勾上的难度数。调用方负责点「确定」。"""
+) -> tuple[int, Any]:
+    """在难度弹窗里按设置勾选；返回 (实际勾上的难度数, 弹窗最后一帧)。调用方负责点「确定」。
+
+    先按难度表的自然顺序（难度1 → 难度10）把目标行找出来；弹窗一屏只放 4 行，
+    找高难度要滚动弹窗内的列表 —— 滚过之后前面那些行的 y 就失效了，所以**每个
+    滚动位置上的行点完、验完再继续往下找**（`_read_modal_rows` 只在滚动时才再叫）。
+    「重置」已经把整张弹窗清空，因此不做逐项预检：直接点，点完截一帧统一验证。
+    """
     done: set[str] = set()
-    # 按难度表顺序勾（难度1 → 难度10），不要用 sorted()：弹窗只能往下滚，
-    # 按字符串排序时 "L10" 排在 "L2" 前面，先勾 10 再回头找 2 会永远找不到。
+    batch: list[tuple[str, Any]] = []
+    current_rows = rows
+    last_img: Any = None
+
+    def flush() -> None:
+        nonlocal batch, last_img
+        if not batch:
+            return
+        got, last_img = _click_and_verify(context, dungeon, batch)
+        done.update(got)
+        batch = []
+
     for key, _name, _alias in dungeon.difficulties:
         if key not in wanted:
             continue
-        box = _match_row(rows, dungeon, key)
+        box = _match_row(current_rows, dungeon, key)
         if box is None:
-            # 一屏只放得下 4 行：难度 7~10 要滚动弹窗内的列表才露出来
+            flush()  # 先把当前这一屏能找到的点完再滚，否则滚完坐标就废了
+            found = None
             for _ in range(_MODAL_SCROLL_TRIES):
-                _swipe(context, _MODAL_SCROLL_UP[0:2], _MODAL_SCROLL_UP[2:4], 400)
+                _swipe(context, _MODAL_SCROLL_DOWN[0], _MODAL_SCROLL_DOWN[1], 400)
                 time.sleep(_SCROLL_SETTLE)
-                rows = _read_modal_rows(context)
-                box = _match_row(rows, dungeon, key)
-                if box is not None:
+                current_rows = _read_modal_rows(context)
+                found = _match_row(current_rows, dungeon, key)
+                if found is not None:
                     break
-        if box is None:
-            logger.warning(
-                "自动挂机：{} 弹窗里没有「{}」这一项（可能未解锁），跳过。",
-                dungeon.title,
-                dungeon.labels.get(key, key),
-            )
-            continue
-        if _circle_checked(context, box):
-            done.add(key)
-            continue
-        _click_at(context, _MODAL_CIRCLE_X, int(_box_center_y(box)))
-        time.sleep(0.35)
-        if _circle_checked(context, box):
-            done.add(key)
-        else:
-            _dump_frame(context, f"modal_{dungeon.node_prefix}_{key}")
-            logger.warning(
-                "自动挂机：{}「{}」勾选后没变成选中态（点在 x={}, y={}）。",
-                dungeon.title,
-                dungeon.labels.get(key, key),
-                _MODAL_CIRCLE_X,
-                int(_box_center_y(box)),
-            )
-    return len(done)
+            if found is None:
+                logger.warning(
+                    "自动挂机：{} 弹窗里没有「{}」这一项（可能未解锁），跳过。",
+                    dungeon.title,
+                    dungeon.labels.get(key, key),
+                )
+                continue
+            box = found
+        batch.append((key, box))
+    flush()
+    return len(done), last_img
 
 
-def _confirm_modal(context: Context) -> bool:
-    confirm = _find_in(context, _MODAL_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT)
-    if confirm is None:
-        confirm = _find_contains(context, _MODAL_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT)
+def _confirm_modal(context: Context, img: Any = None) -> bool:
+    confirm = _find_text(context, _MODAL_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT, img)
     if confirm is None:
         logger.warning("自动挂机：难度弹窗里认不到「确定」。")
         return False
     _click_box(context, confirm)
-    time.sleep(0.8)
+    time.sleep(_CLICK_SETTLE)
     return True
 
 
-def _close_stuck_modal(context: Context) -> None:
-    """难度弹窗没关上时兜底关掉：它盖住整个弹窗会让后面的展开/识别全部失效。
+def _open_card(context: Context, x: int, y: int, dungeon: Dungeon) -> list[tuple[str, Any]] | None:
+    """点开一张副本卡片，有界等待**目标副本**的难度弹窗出来；返回难度行，超时返回 None。
 
-    实测踩过：某次点开副本卡片后 OCR 没读出难度行，`_open_card` 超时返回，
-    弹窗就留在屏幕上，于是后面所有横幅点击都打在弹窗后面，整个系列"谁都展开不了"。
+    认身份用难度行文案（「野猪统领-普通」这种普通字体的整串），**不靠弹窗标题** ——
+    标题是艺术字，OCR 会掉字（实测「青鬃熊」只认出「王」）。等"目标副本的关键字出现"
+    而不是"任意文本出现"：外层弹窗的横幅艺术字也会落进这个 ROI，等任意文本就会误判。
     """
-    if _find_in(context, _MODAL_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT) is not None:
-        logger.debug("自动挂机：发现难度弹窗还开着，先点「确定」关掉。")
-        _confirm_modal(context)
-
-
-def _open_card(context: Context, x: int, y: int) -> tuple[str, list[tuple[str, Any]]] | None:
-    """点开一张副本卡片，返回 (弹窗标题, 难度行)；没弹窗 / 认不出副本返回 None。
-
-    ⚠️ 标题是艺术字，OCR 会掉字（实测「青鬃熊」只认出「王」），所以**不靠标题认副本**：
-    真正用来认身份的是难度行文案（「青鬃熊-普通」这种整串普通字体）。标题只用于日志。
-    认不出副本就当没点开 —— 末行不满 3 张卡时点到空位会 OCR 到「0/2」计数，不能当弹窗。
-    """
-    _close_stuck_modal(context)
     _click_at(context, x, y)
+    # 弹窗有开启动画：点完立刻 OCR 一定是空帧（白花一次截图+OCR），先等一个轮询间隔。
+    time.sleep(_MODAL_OPEN_POLL)
     deadline = time.time() + _MODAL_OPEN_TIMEOUT
-    title = ""
-    rows: list[tuple[str, Any]] = []
-    while time.time() < deadline:
-        if not title:
-            lines = _ocr_lines(context, _MODAL_TITLE_ROI)
-            if lines:
-                title = lines[0][0]
+    while True:
         rows = _read_modal_rows(context)
-        if _identify_dungeon(title, rows) is not None:
-            return title, rows
-        time.sleep(0.3)
-    _close_stuck_modal(context)
-    return None
-
-
-def _identify_dungeon(title: str, rows: list[tuple[str, Any]]) -> Dungeon | None:
-    """按难度行文案认副本（行里带副本名），行认不出来再退回标题。"""
-    for text, _box in rows:
-        plain = text.replace(" ", "")
-        for dungeon in DUNGEONS:
-            if dungeon.keyword in plain:
-                return dungeon
-    return _match_dungeon(title) if title else None
-
-
-def _match_dungeon(title: str) -> Dungeon | None:
-    plain = title.replace(" ", "")
-    for dungeon in DUNGEONS:
-        if dungeon.keyword in plain:
-            return dungeon
-    return None
-
-
-# ---- 系列 → 卡片 --------------------------------------------------------------------
-# 横幅艺术字框顶压到 y≈225：再高（<190）横幅上半截会被弹窗标题栏裁掉，OCR 只认到
-# 半截字、框顶也就跟着虚高，后面按它推出来的卡片行会整整错一行（实测错到下一行）。
-_ALIGN_TARGET_TOP = 225
-_ALIGN_PAD = 30
-_ALIGN_MIN_STEP = 60
-_ALIGN_MAX_STEP = 170
-
-
-def _align_series_top(context: Context, series_key: str) -> float | None:
-    """把目标系列横幅对到可视区上沿附近，返回对齐后的横幅顶 y。
-
-    展开时会一路往下滚，很容易滚过第 1 行（实测因此漏掉「苏尔特尔」）；
-    这里先把横幅找回来，再按差额一点点推，直到横幅顶≈225，横幅 + 3 行卡片全在视野内。
-
-    只认 OCR 会出大问题：横幅被推成半截时艺术字经常整片认不出来，「找不到就
-    直接 return」会让调用方继续用滚动前的老 top 推卡片行 —— 三个点全落到
-    「重置/确定」条下面（y>920 被静默跳过），整行卡片一个都没点（实测漏掉
-    「野猪统领」）。所以这里改成"死推算 + OCR 校正"：记下最后一次认到的 y，
-    每滚一次就按滚动量递减，OCR 认回来再校准；推完把最终 y 交给调用方。
-    """
-    box = _find_banner(context, series_key)
-    for _ in range(6):
-        if box is not None:
-            break
-        _swipe(context, [360, 700], [360, 900], 350)  # 往上翻，找回横幅
-        time.sleep(0.7)
-        box = _find_banner(context, series_key)
-    if box is None:
-        box = _locate_banner(context, series_key)  # 兜底：回列表顶部逐屏往下找
-    if box is None:
-        return None
-    top = box_top(box)
-    for _ in range(8):
-        shift = top - _ALIGN_TARGET_TOP
-        if abs(shift) <= _ALIGN_PAD:
-            return top
-        step = int(max(-_ALIGN_MAX_STEP, min(_ALIGN_MAX_STEP, shift)))
-        if abs(step) < _ALIGN_MIN_STEP:
-            step = _ALIGN_MIN_STEP if step > 0 else -_ALIGN_MIN_STEP
-        _swipe(context, [360, 700], [360, 700 - step], 320)
-        time.sleep(0.7)
-        top -= step
-        found = _find_banner(context, series_key)
-        if found is not None:
-            top = box_top(found)
-    return top
-
-
-def _banner_spans(context: Context) -> list[tuple[float, float]]:
-    """当前视野里所有系列横幅的纵向范围 [(top, bottom)]，用来避免把行点进下一个横幅。
-
-    横幅 OCR 框只框住艺术字（实测框顶比横幅金框顶低 ≈21px），所以上下各放宽：
-    上界 -30 容下金框，下界 +200 覆盖横幅高 170 + 偏移。点到横幅上会把那个系列
-    展开/收起、整屏位置全乱（实测「王国」第 3 行就点在「始源」横幅上）。
-    """
-    spans: list[tuple[float, float]] = []
-    for text, box in _ocr_lines(context, _DIALOG_LIST_ROI):
-        plain = text.replace(" ", "")
-        if any(key in plain for key in _SERIES_KEYS):
-            top = box_top(box)
-            spans.append((top - 30, top + 200))
-    return spans
-
-
-def _process_series(context: Context, selected: dict[str, set[str]], series_name: str, series_key: str) -> bool:
-    """处理一个系列：展开 → 逐张点开卡片 → 认出的副本按设置勾难度。
-
-    卡片上只有立绘，没有可 OCR 的名字，所以只能"点开一张读一张"；
-    认出副本后即使不在清单里也要点「确定」把弹窗关掉（不会改动它的勾选）。
-    """
-    targets = [d for d in DUNGEONS if d.series == series_name and d.title in selected and selected[d.title]]
-    if not targets:
-        return True
-    pending = {d.title for d in targets}
-    handled: set[str] = set()
-
-    top = _ensure_expanded(context, series_key)
-    if top is None:
-        # 单个系列展开不了不该拖垮整次任务：记日志，其它系列（和"确定"）照常走
-        logger.warning("自动挂机：「{}」系列没能展开，跳过：{}", series_name, "、".join(sorted(pending)))
-        return True
-
-    # 卡片行数由 SERIES 表决定（每行 3 张）：5 个副本 = 2 行、7 个 = 3 行。
-    # 以前一律点 3 行，2 行系列的第 3 行正好落在下一个系列的**横幅**上，
-    # 一点就把那个系列展开/收起、整屏位置全乱（实测「王国」因此一个目标都没勾上）。
-    series_total = sum(1 for d in DUNGEONS if d.series == series_name)
-    row_count = max(1, min(_CARD_ROW_MAX, (series_total + _CARDS_PER_ROW - 1) // _CARDS_PER_ROW))
-    tapped: set[tuple[int, int]] = set()
-    for _round in range(4):
-        # 每轮都重新把横幅对到顶部再推行位置：滚过之后老 top 就不成立了，
-        # 沿用老 top 会算出屏幕外/被按钮条挡住的 y，静默跳过整行（实测漏过「野猪统领」）。
-        aligned = _align_series_top(context, series_key)
-        if aligned is None:
-            logger.warning("自动挂机：第 {} 轮没能重新认出「{}」横幅，沿用上一轮位置。", _round + 1, series_key)
-        else:
-            top = aligned
-        # 行位置优先用图像识别出来的真实卡片行（金色描边，误差 0）；认不出来才退回
-        # "横幅艺术字框顶 +225、行距 120"的版式推算。
-        rows = _card_rows(context, top)
-        _dump_frame(context, f"{series_key}_{_round}_{int(top)}")
-        if rows:
-            logger.debug("自动挂机：「{}」横幅顶 y={}，识别出卡片行 {}。", series_key, int(top), rows)
-        else:
-            rows = [int(top) + _CARD_ROW1_OFFSET + _CARD_ROW_STEP * k for k in range(row_count)]
-            # 推算出来的位置要挡一下：别落进下一个系列的横幅（点上去会把人家展开/收起）
-            spans = _banner_spans(context)
-            rows = [y for y in rows if not any(lo <= y <= hi for lo, hi in spans)]
-            logger.debug("自动挂机：「{}」横幅顶 y={}，没认出卡片描边，按版式推算 {}。", series_key, int(top), rows)
-        usable = [y for y in rows if 140 <= y <= _CARD_SAFE_BOTTOM]
-        if len(rows) < row_count or not usable:
-            logger.debug(
-                "自动挂机：「{}」只认出 {} 行（应为 {}），金线：{}",
-                series_key,
-                len(rows),
-                row_count,
-                _gold_dump(context),
+        if _has_keyword(rows, dungeon.keyword):
+            return rows
+        if is_stopping(context) or time.time() >= deadline:
+            logger.warning(
+                "自动挂机：点开 ({},{}) 后没等到「{}」的难度弹窗。",
+                x,
+                y,
+                dungeon.title,
             )
-        for y in usable:
-            for x in _CARD_X:
-                if not pending:
-                    break
-                if (x, y) in tapped:
-                    continue
-                tapped.add((x, y))
-                opened = _open_card(context, x, int(y))
-                if opened is None:
-                    # 末行不满 3 张、或卡片被按钮条挡了一半，点到空位很常见：直接跳过。
-                    # 如果其实是把系列点收起了，下一轮 `_card_rows` 会是空，会重新展开。
-                    logger.debug("自动挂机：({},{}) 不是副本卡片（空位/被挡），跳过。", x, y)
-                    continue
-                title, modal_rows = opened
-                dungeon = _identify_dungeon(title, modal_rows)
-                if dungeon is None:
-                    logger.warning("自动挂机：({},{}) 的弹窗认不出是哪个副本（标题「{}」），跳过。", x, y, title)
-                    _confirm_modal(context)
-                    continue
-                if dungeon.series != series_name:
-                    logger.warning("自动挂机：在「{}」系列里点到了「{}」的卡片，跳过。", series_name, dungeon.title)
-                    _confirm_modal(context)
-                    continue
-                if dungeon.title in handled:
-                    logger.debug("自动挂机：({},{}) 又是「{}」（已处理过），跳过。", x, y, dungeon.title)
-                    _confirm_modal(context)
-                    continue
-                handled.add(dungeon.title)
-                if dungeon.title not in pending:
-                    logger.debug("自动挂机：{} 不在本次要勾选的清单里，跳过。", dungeon.title)
-                    _confirm_modal(context)
-                    continue
-                logger.debug(
-                    "自动挂机：{} 勾选难度 {}。",
-                    dungeon.title,
-                    "、".join(sorted(dungeon.labels.get(k, k) for k in selected[dungeon.title])),
-                )
-                got = _select_difficulties(context, dungeon, selected[dungeon.title], modal_rows)
-                _confirm_modal(context)
-                pending.discard(dungeon.title)
-                if got == 0:
-                    logger.warning("自动挂机：{} 一个难度都没勾上。", dungeon.title)
-            if not pending:
-                break
-        if not pending:
-            return True
-        # 还有没认到的：往下滚一点再扫（7 个副本的系列可能还有没进画面的行）
-        _swipe(context, [360, 800], [360, 650], 350)
-        time.sleep(0.8)
-    if pending:
-        logger.warning("自动挂机：「{}」系列里没找到：{}", series_name, "、".join(sorted(pending)))
+            return None
+        time.sleep(_MODAL_OPEN_POLL)
+
+
+def _open_and_select(context: Context, dungeon: Dungeon, cx: int, cy: int, wanted: set[str]) -> bool:
+    """模板命中 → 点开 → 勾难度 → 关弹窗。"""
+    rows = _open_card(context, cx, cy, dungeon)
+    if rows is None:
+        _close_stuck_modal(context)
+        return False
+    logger.debug(
+        "自动挂机：模板命中「{}」({}, {})，勾选难度 {}。",
+        dungeon.title,
+        cx,
+        cy,
+        "、".join(sorted(dungeon.labels.get(k, k) for k in wanted)),
+    )
+    got, frame = _select_difficulties(context, dungeon, wanted, rows)
+    # 复用验证勾选态时那一帧找「确定」：弹窗没滚过，按钮位置不变，省一次截图+OCR。
+    _confirm_modal(context, frame)
+    if got == 0:
+        logger.warning("自动挂机：{} 一个难度都没勾上。", dungeon.title)
+        return False
     return True
 
 
@@ -945,31 +879,21 @@ def _read_selection(context: Context) -> dict[str, set[str]]:
 def _apply_selection(context: Context, selected: dict[str, set[str]]) -> bool:
     # 有难度弹窗盖着的话，「重置」点不到（实测会白白跳过清空，沿用上一次的勾选）
     _close_stuck_modal(context)
-    reset = _find_in(context, _RESET_ROI, _RESET_TEXT) or _find_contains(context, _RESET_ROI, _RESET_TEXT)
+    img = _frame(context)
+    reset = _find_text(context, _RESET_ROI, _RESET_TEXT, img)
     if reset is None:
         logger.error("自动挂机：弹窗里认不到「重置」，无法清空历史勾选。")
         return False
     logger.debug("自动挂机：点「重置」清空弹窗里已有的勾选。")
     _click_box(context, reset)
     time.sleep(_CLICK_SETTLE)
-    _scroll_dialog_top(context)
-
-    total = sum(len(keys) for keys in selected.values())
-    logger.debug(
-        "自动挂机：按设置勾选 {} 个难度（{} 个副本）。",
-        total,
-        len(selected),
-    )
-    for series_name, series_key, _items in SERIES:
-        if not _process_series(context, selected, series_name, series_key):
-            return False
+    # 不再"回顶 4 连滑"（≈3.2s 白等）：`_scan_dialog` 会自己用"画面不变"判据滚到顶。
+    _scan_dialog(context, selected)
     return True
 
 
 def _confirm_dialog(context: Context) -> bool:
-    confirm = _find_in(context, _DIALOG_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT)
-    if confirm is None:
-        confirm = _find_contains(context, _DIALOG_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT)
+    confirm = _find_text(context, _DIALOG_CONFIRM_ROI, _DIALOG_CONFIRM_TEXT)
     if confirm is None:
         logger.error("自动挂机：认不到弹窗底部「确定」。")
         return False
@@ -980,23 +904,31 @@ def _confirm_dialog(context: Context) -> bool:
 
 def _already_idling(context: Context) -> bool:
     """画面里已经有「自动挂机中 / 停止挂机」= 挂机已经在跑（战斗界面或战斗列表浮层）。"""
-    return any(_find_contains(context, _IDLING_ROI, text) is not None for text in _IDLING_TEXTS)
+    img = _frame(context)
+    if img is None:
+        return False
+    joined = "".join(text for text, _box in _ocr_lines(context, _IDLING_ROI, img))
+    return any(text in _plain(joined) for text in _IDLING_TEXTS)
 
 
 def _wait_idling(context: Context, timeout: float = _IDLING_TIMEOUT) -> bool:
     """等挂机真的跑起来：战斗浮层「自动挂机中 / 停止挂机」；回到空列表就算失败。"""
     deadline = time.time() + timeout
+    start = time.time()
     while True:
-        for text in _IDLING_TEXTS:
-            if _find_contains(context, _IDLING_ROI, text) is not None:
-                logger.info("自动挂机：认到「{}」，挂机已启动。", text)
-                return True
-        if _dialog_open(context) is False and _on_list_page(context) and _idle_not_running(context):
-            logger.warning("自动挂机：确定后仍显示「没有正在战斗中的副本」，挂机没起来。")
-            return False
+        img = _frame(context)
+        if img is not None:
+            joined = "".join(text for text, _box in _ocr_lines(context, _IDLING_ROI, img))
+            for text in _IDLING_TEXTS:
+                if text in _plain(joined):
+                    logger.info("自动挂机：认到「{}」，挂机已启动。", text)
+                    return True
+            if time.time() - start >= _IDLING_FAIL_GRACE and _idle_not_running(context, img):
+                logger.warning("自动挂机：确定后仍显示「没有正在战斗中的副本」，挂机没起来。")
+                return False
         if is_stopping(context) or time.time() >= deadline:
             return False
-        time.sleep(1.0)
+        time.sleep(_IDLING_POLL)
 
 
 @AgentServer.custom_action("AutoIdleRun")

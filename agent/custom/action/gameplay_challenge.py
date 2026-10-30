@@ -328,11 +328,18 @@ _FORMATION_BUFF_ROI = [0, 740, 720, 260]
 
 # ---- 队伍属性识别（元素徽章）-------------------------------------------------
 # 编队页「主要成员」每一格头像左上角都有一枚**元素徽章**，同一支队伍里各格同色。
-# 用户提供的六份已知属性截图（火/水/风/土/光/暗）逐格分类 6/6 一致，空槽会被跳过。
-# 取样框 28x28，y=470，x 按 UI 栅格 54/160/266/372（用户已在 火/土 两图上圈出该位置）。
+# ⚠️ 队伍属性由**从左往右第一位角色**决定（用户明确），因此只识别第一格（最左）徽章，
+# 不再对 4 格做多数表决：后面的格子可能是空槽，或放了不同属性的队员/助战，
+# 多数表决会在混合队伍里把队长属性判错（队长火、三个风队友时会被误判成风）。
+# 取样框 28x28，y=470 是**窗口顶部**（不是中心）。离线六图回归证明徽章核心就在 y470 一带：
+# 窗口下移 5px 就开始混入头像内容（角色立绘/肤色），水/风/土/暗 会连环误判（见 _probe 回归）。
+# x 取第一格 54（用户已在 火/土 两图上圈出该位置）。为抗徽章位置轻微偏移（版本/分辨率差异），
+# 第一格在 y=468/470/472 三个窗口多数表决：离线六图回归三窗全票一致（6/6），偏移 ±4px 内仍能命中。
 _ELEMENT_BADGE_X = (54, 160, 266, 372)
 _ELEMENT_BADGE_Y = 470
 _ELEMENT_BADGE_SIZE = 28
+# 第一格（队长）徽章的多窗口 y 偏移（相对 _ELEMENT_BADGE_Y 窗口顶部）。
+_LEADER_BADGE_Y_OFFSETS = (-2, 0, 2)
 # 六种属性的徽章参考色（HSV）。必须用「色相 + 饱和度 + 亮度」联合判据：
 # 土(39.0°) 与 光(43.6°) 色相只差 4.8°，单看色相必混；但亮度差 0.096、饱和度差 0.035，
 # 按下面的权重加权后两者距离 0.41~0.57，而正确项距离 0.00~0.24，分得开。
@@ -562,15 +569,19 @@ def _rank_elements(hsv) -> list[tuple[float, str]]:
     )
 
 
-def _sample_badge_color(img, cx: int):
-    """取一格的元素徽章代表色 (B, G, R)；该格为空槽（几乎全是灰度）时返回 None。
+def _sample_badge_color(img, cx: int, y: int = _ELEMENT_BADGE_Y):
+    """取一格元素徽章的代表色 (B, G, R)；该格为空槽（几乎全是灰度）时返回 None。
 
     刻意不依赖 numpy：agent 只声明了 loguru/maafw，虽然截图本身就是 numpy 数组，
     这里只用切片 + 纯 Python 统计（28x28=784 像素，开销可忽略）。
+
+    ``y`` 是取样窗口**顶部**（不是中心），默认 ``_ELEMENT_BADGE_Y``；
+    第一格多窗口采样时传入偏移后的 y，便于抗徽章位置轻微偏移。
     """
     half = _ELEMENT_BADGE_SIZE // 2
     x0 = max(0, cx - half)
-    rows = img[_ELEMENT_BADGE_Y : _ELEMENT_BADGE_Y + _ELEMENT_BADGE_SIZE, x0 : x0 + _ELEMENT_BADGE_SIZE]
+    y0 = max(0, y)
+    rows = img[y0 : y0 + _ELEMENT_BADGE_SIZE, x0 : x0 + _ELEMENT_BADGE_SIZE]
     pixels: list[tuple[float, float, float, float]] = []
     for row in rows.tolist():
         for pixel in row:
@@ -591,13 +602,17 @@ def _sample_badge_color(img, cx: int):
 
 
 def _classify_team_element(img) -> str | None:
-    """在编队页截图上按「主要成员 4 格元素徽章」多数表决判定队伍属性；认不出返回 None。
+    """判定队伍属性 = 从左往右**第一位角色**（队长）的元素徽章；认不出返回 None。
+
+    队伍属性只看第一格（用户明确）：后面格子可能是空槽，或放了不同属性的队员/助战，
+    用多数表决会在混合队伍里把队长属性判错。所以这里只在第一格用多个 y 窗口采样、
+    多数表决，目的是抗徽章位置轻微偏移（版本/分辨率差异），而不是跨格子表决。
 
     纯函数（只吃图像数组），便于用固定截图离线回归。
     """
     votes: dict[str, int] = {}
-    for cx in _ELEMENT_BADGE_X:
-        color = _sample_badge_color(img, cx)
+    for offset in _LEADER_BADGE_Y_OFFSETS:
+        color = _sample_badge_color(img, _ELEMENT_BADGE_X[0], _ELEMENT_BADGE_Y + offset)
         if color is None:
             continue
         distance, element = _rank_elements(_bgr_to_hsv(color))[0]
