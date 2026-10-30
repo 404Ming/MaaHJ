@@ -117,8 +117,15 @@ _GIFT_ROW_SLOTS = 2
 _GIFT_ROW_TOLERANCE = 60
 _COLUMN_TOLERANCE = 90
 
-# 每次扫描找不到目标就翻一页，翻页次数上限（列表约 24 行，正常 12 页内到底）。
-_MAX_SCROLLS = 16
+# 每次扫描找不到目标就翻一页，翻页次数上限。
+# 用 6 而不是 12+：列表一屏约 4~6 行，6 页已经足够扫完整个商店（约 24~36 行）；
+# 之前设 16 时，勾选了但本期在售列表里没有的商品会一路翻到底（实测 星间通信书 单件耗时
+# 43 秒），用户看到的就是「一直在识别、不跳过」。
+_MAX_SCROLLS = 6
+
+# 单件商品的时间预算（秒）。翻页查找受网络/OCR 速度影响，仅靠页数上限仍可能拖很久，
+# 超预算就放弃这一件、继续下一件，避免整段商店卡在一件根本不存在的商品上。
+_ITEM_TIME_BUDGET = 25.0
 
 
 @dataclass(frozen=True)
@@ -638,6 +645,7 @@ def _buy_item(
     handled: set[str] = set()
     seen_text: set[str] = set()
     scrolls = 0
+    deadline = time.monotonic() + _ITEM_TIME_BUDGET
 
     # 每件商品都从列表顶部开始扫：上一件（尤其是不存在、扫到底才放弃的那件）会把列表留在底部，
     # 不从顶部重来就会漏掉排在它前面的商品。
@@ -650,6 +658,10 @@ def _buy_item(
         # 循环入口查一次，把停止延迟压到一个 OCR 周期的量级（约 0.5~1 秒）。
         if is_stopping(context):
             logger.info(f"商店购买：收到停止请求，中断 {item.label} 的购买。")
+            break
+        if time.monotonic() > deadline:
+            # 用户反馈「没识别到物品就一直在识别」：翻页查找必须有硬上限。
+            logger.warning(f"商店购买：{item.label} 超过 {_ITEM_TIME_BUDGET:.0f} 秒仍未在售，跳过这一件继续下一件。")
             break
         lines = _ocr(context, _screencap(context), roi)
         cards = _cards_for(layout, lines)
@@ -667,8 +679,9 @@ def _buy_item(
             fresh = signature - seen_text
             seen_text |= signature
             # 三个停止条件：翻到底 / 画面没变 / 翻了一页却没有任何新文本。
-            # 最后一条是为了短列表（例如折扣礼包页整页只有两行卡）：翻一页没有新内容就没必要再翻 16 页。
+            # 最后一条是为了短列表（例如折扣礼包页整页只有两行卡）：翻一页没有新内容就没必要再往下翻。
             if not fresh or scrolls >= max_scrolls:
+                logger.info(f"商店购买：{item.label} 已翻完 {scrolls} 页仍没找到可买的行，跳过。")
                 break
             scrolls += 1
             _swipe(context, SCROLL_DOWN_FROM, SCROLL_DOWN_TO, SCROLL_DURATION)
@@ -693,6 +706,8 @@ def _buy_item(
         else:
             logger.warning(f"商店购买：{item.label} 这一次没买成（售罄 / 余额不足 / 弹窗异常），跳过这一张。")
             if allowed_names is not None:
+                break
+            if is_stopping(context) or time.monotonic() > deadline:
                 break
             scrolls += 1
             if scrolls > max_scrolls:

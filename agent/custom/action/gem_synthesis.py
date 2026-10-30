@@ -317,7 +317,10 @@ def _on_gem_page(lines: list[_Line]) -> bool:
 
 def _return_home(context: Context) -> None:
     """把角色送回主页（与快速炼金同一套做法）。"""
-    context.clear_hit_count("BackToMainHub_Back")
+    # BackToMainHub_* 的 max_hit 跨任务累加，整轮队列里前面几个任务可能已经把它用光，
+    # 这里统一复位，避免「第一次就回不去主页」。
+    for node_name in ("BackToMainHub_Back", "BackToMainHub_BackBlind", "BackToMainHub_StopIdle"):
+        context.clear_hit_count(node_name)
     detail = context.run_task("BackToMainHub_Start")
     if detail is None or detail.status.failed:
         logger.warning("宝石合成：返回主页失败，请手动确认当前画面。")
@@ -676,8 +679,10 @@ class GemSynthesis(CustomAction):
 
         need, levels = _read_settings(context)
         if not levels:
+            # 「一个等级都没勾选」是配置为空、无事可做，不是运行失败：
+            # 返回 False 会被客户端判成「任务失败」并中断整条任务队列，代价远大于收益。
             logger.warning("宝石合成：一个等级都没勾选，本次不做任何点击。")
-            return CustomAction.RunResult(success=False)
+            return CustomAction.RunResult(success=True)
         logger.info(
             "宝石合成：模式=「{}」（每轮 {} 颗），等级={}。",
             "三合一" if need == 3 else "二合一",
@@ -744,6 +749,11 @@ class GemSynthesis(CustomAction):
             logger.info("宝石合成：收到停止请求，本次完成 {} 轮，不再回主页。", total_done)
             return CustomAction.RunResult(success=False)
 
+        if total_done == 0:
+            logger.info("宝石合成：本次没有可合成的宝石（每个勾选等级的存量都不足一轮），按正常结束处理。")
         logger.info("宝石合成：本次共完成 {} 轮（其中失败 {} 轮），准备返回主页。", total_done, failed)
         _return_home(context)
-        return CustomAction.RunResult(success=total_done > 0)
+        # 只有真正的异常（参数错误 / 进不了宝石页）才返回 False。
+        # 「0 轮」= 没有可合成的宝石，是正常结果：旧实现在这里返回 total_done > 0，
+        # 导致 2026-10-30 10:59 宝石已用完时被客户端判成「任务失败」并中断整条队列。
+        return CustomAction.RunResult(success=True)

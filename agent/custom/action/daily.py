@@ -33,10 +33,20 @@ class ReturnHome(CustomAction):
     同时注册 `DailyReturnHome` 别名，兼容每日任务旧节点。
     """
 
+    # BackToMainHub_* 的 max_hit 是**跨任务累加**的（命中计数挂在 tasker 上，只在显式
+    # clear_hit_count 时归零）。整条任务队列里回主页会被调用几十次，额度一旦用尽，
+    # 后面的任务就再也退不回主页 —— 实测 2026-10-30 10:38~10:44：商店任务把游戏留在商店页后，
+    # 骑士团 / 古塔 / 邮件 / 机神 / 宝石合成接连因为「回主页失败」判任务失败。
+    # 因此每次回主页前把这几个返回节点的计数一起复位，保证每次都有完整的退层额度。
+    RESET_NODES = (
+        "BackToMainHub_Back",
+        "BackToMainHub_BackBlind",
+        "BackToMainHub_StopIdle",
+    )
+
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
-        # 日常任务会在一次运行里回主页两次（史莱姆、火元素各一次），
-        # BackToMainHub_Back 的 max_hit=5 会跨 run_task 累加，这里先复位保证第二次也有完整返回层级。
-        context.clear_hit_count("BackToMainHub_Back")
+        for node_name in self.RESET_NODES:
+            context.clear_hit_count(node_name)
         detail = context.run_task("BackToMainHub_Start")
         if detail is None or detail.status.failed:
             logger.warning("DailyReturnHome: 返回主页失败。")

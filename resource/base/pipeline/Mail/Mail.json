@@ -147,8 +147,22 @@
         "next": [
             "[JumpBack]Exception_Start",
             "Mail_AtHub",
-            "[JumpBack]Mail_Back"
+            "[JumpBack]Mail_Back",
+            "[JumpBack]Mail_RecoverHub"
         ]
+    },
+    "Mail_RecoverHub": {
+        // 最后一道回主页兜底：模板返回键认不到时（例如上个任务被中断后停在商店页），
+        // 用 ReturnHome 跑一次 BackToMainHub_Start（内部会先复位 Back/BackBlind 命中计数）。
+        // 不能用 [JumpBack]BackToMainHub_Start：它在主页上永远命中，父节点会死循环重入。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ReturnHome"
+            }
+        },
+        "timeout": 60000
     },
     "Mail_AtHub": {
         // 主页锚点：底部导航第一个按钮「惑星之间」（实测 OCR box (13,1235,103,33) score 0.999）。

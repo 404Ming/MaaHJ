@@ -2,10 +2,10 @@
     "interface_version": 2,
     "name": "maahj",
     "label": "MaaHJ",
-    "title": "哼唧小助手 v0.2.1",
+    "title": "哼唧小助手 v0.2.2",
     "icon": "resource/base/image/icon.png",
     "github": "https://github.com/404Ming/MaaHJ",
-    "version": "v0.2.1",
+    "version": "v0.2.2",
     "description": "MaaHJ MaaFW project",
     "controller": [
         {

@@ -170,6 +170,10 @@
         "action": {
             "type": "Click"
         },
+        // 识别到「收获奖励」后先把点击压后 2 秒（用户实测反馈：奖励框有滑入/缩放动画，
+        // OCR 在动画中途就能读到文字，此时立刻点会落在还没停稳的按钮上 → 点了等于没点，
+        // 而 max_hit 1 已经消耗掉，只能落进 UnknownFallback 空转）。
+        "pre_delay": 2000,
         // 领完 1s 左右才会叠上「每日登录」框（实测），留 1.5s 给它出现——
         // 太快回监督节点时弹窗还没画出来，候选会全落空并误进 UnknownFallback 异常链
         "post_delay": 1500,
@@ -394,8 +398,11 @@
         // 页面停在黄金之国页，点右上角「任务」打开「任务报酬」面板。
         // 实测 2026-10-21：「任务」OCR box (636,212,50,30)，点**文字中心** (661,227) 即可打开面板。
         // ROI 只框右上角这一块，主页的「每日任务」等文字不在框内，不会误触。
-        // max_hit 1：一次任务只开一次面板，异常链回到本段时不会反复开。
-        "max_hit": 1,
+        // max_hit 3：允许重开。挑战结算刚结束时点「任务」会被过场/遮罩吃掉
+        // （实测 2026-10-30 11:08:43 段尾返回，11:08:44.068 就点了 (661,226)，
+        //   坐标与历史实测一致但面板没打开 ⇒ 监督节点三个候选 8 秒全 miss 判任务失败）。
+        // 领奖监督节点发现面板不在时会 [JumpBack] 回来重点一次，所以这里留 3 次额度。
+        "max_hit": 3,
         "recognition": {
             "type": "OCR",
             "param": {
@@ -411,6 +418,8 @@
         "action": {
             "type": "Click"
         },
+        // 结算过场/关卡完成动画约 1~2s：先等页面稳定再点，避免点击落进过场里被吞掉
+        "pre_delay": 1500,
         // 面板有约 1s 的弹出动画，等它稳定再进监督节点，否则第一轮 OCR 可能拍在半透明遮罩上
         "post_delay": 1500,
         "timeout": 5000,
@@ -431,7 +440,16 @@
         "next": [
             "MachineGodDescent_MissionClaimReward",
             "MachineGodDescent_MissionClaimObtainClose",
-            "MachineGodDescent_CloseMissionPanel"
+            "MachineGodDescent_CloseMissionPanel",
+            // 面板压根没打开（点击被结算过场吃掉）时，三个候选会同时 miss。
+            // 这里先 JumpBack 回去重点一次「任务」；OpenMissionPanel 的 max_hit 3 用完后本候选失效，
+            // 再由下面的 on_error 收尾，绝不会像 2026-10-30 11:08:54 那样直接判任务失败。
+            "[JumpBack]MachineGodDescent_OpenMissionPanel"
+        ],
+        // 点了也打不开面板（或面板出现了但三个 ROI 都认不到）时，走正常收尾链回主页 + StopTask，
+        // 把已经做完的挑战保住，而不是让整条任务队列因为「领不到任务报酬」中断。
+        "on_error": [
+            "MachineGodDescent_BackHome"
         ]
     },
     "MachineGodDescent_MissionClaimReward": {

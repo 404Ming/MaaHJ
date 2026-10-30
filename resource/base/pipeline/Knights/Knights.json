@@ -15,6 +15,12 @@
             "Knights_DailyDonateGate",
             "Knights_TreasureGate",
             "Knights_Done"
+        ],
+        // 入口完全认不到（典型：上一个任务被中途停止，游戏停在商店/副本页）时不要直接把
+        // 整个任务判失败，先尽力回主页收尾一次。实测 2026-10-30 10:43:42 骑士团连续两次
+        // 「任务失败」，同期的 on_error 截图显示画面停在商店页。
+        "on_error": [
+            "Knights_HomeThenEnd"
         ]
     },
     "Knights_Done": {
@@ -316,8 +322,23 @@
         "next": [
             "Knights_AtHubEnd",
             "[JumpBack]Knights_LeaveHall",
-            "[JumpBack]Knights_Donate_Back"
+            "[JumpBack]Knights_Donate_Back",
+            "[JumpBack]Knights_RecoverHub"
         ]
+    },
+    "Knights_RecoverHub": {
+        // 最后一道回主页兜底：上面两个返回节点都认不到时（例如停在商店页，模板返回键匹配不上），
+        // 用 ReturnHome 直接跑一次 BackToMainHub_Start（它会先复位 Back/BackBlind 的命中计数）。
+        // 用 CustomAction 而不是 [JumpBack]BackToMainHub_Start：后者在主页上永远命中，
+        // 父节点会「回主页 → 再回主页」死循环。
+        "max_hit": 1,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "ReturnHome"
+            }
+        },
+        "timeout": 60000
     },
     "Knights_AtHubEnd": {
         // 主页锚点（收尾版）：命中即「已经回到主页」→ 任务在此正常结束。

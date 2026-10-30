@@ -291,7 +291,7 @@ _IDLING_TEXTS = ("自动挂机中", "停止挂机")
 _CLICK_SETTLE = 0.6  # 点按钮/确认弹窗后的界面刷新
 _CLICK_TICK = 0.3  # 连续点同一弹窗里的勾选框（不截图，只等 UI 响应）
 _SCROLL_SETTLE = 0.35  # 滑动后的惯性落定
-_EXPAND_SETTLE = 0.5  # 点系列横幅展开后的动画
+_EXPAND_SETTLE = 1.0  # 点系列横幅展开后的动画：0.5s 时卡片还在滑入，取帧会判成"没展开"而误点第二次
 _MODAL_OPEN_TIMEOUT = 2.5  # 点开卡片后等难度弹窗（认到目标难度行即返回）
 _MODAL_OPEN_POLL = 0.25
 _DIALOG_OPEN_TIMEOUT = 8.0
@@ -607,19 +607,24 @@ def _scan_pass(
         if not pending:
             break
 
-        # ② 本屏还有目标的系列：没展开就点横幅展开（最多两次，第二次是自纠正）
+        # ② 本屏还有目标的系列：没展开就点横幅展开
+        # ⚠️ 只能点**一次**：横幅是切换开关，连点两次 = 展开又收起（实测 2026-10-30 11:15：
+        #    日志连续两条「展开「神骸试炼」系列」之后卡片消失，扫描自然找不到副本。
+        #    点完必须重新判定，判到展开就记账，避免下一屏再点一次把它收回去。
         banner = _find_pending_banner(context, img, pending)
         if banner is not None:
             series_name, box = banner
             if series_name not in expanded_series:
                 if _series_expanded(context, img, series_name):
                     expanded_series.add(series_name)
-                elif expand_clicks.get(series_name, 0) < 2:
+                elif expand_clicks.get(series_name, 0) < 1:
                     expand_clicks[series_name] = expand_clicks.get(series_name, 0) + 1
                     logger.debug("自动挂机：展开「{}」系列。", series_name)
                     _click_box(context, box)
                     time.sleep(_EXPAND_SETTLE)
                     img = _frame(context)
+                    if _series_expanded(context, img, series_name):
+                        expanded_series.add(series_name)
                     continue
                 else:
                     expanded_series.add(series_name)

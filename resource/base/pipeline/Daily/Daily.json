@@ -281,8 +281,9 @@
     },
     "Daily_PickTask": {
         // 任务优先级（用户指定，与游戏列表顺序一致）：
-        // 完成1次史莱姆宝库 > 完成1次任意元素试炼副本 > 创建一次房间。
-        // 「累积消耗体力」按用户要求不再识别。
+        // 完成1次史莱姆宝库 > 完成1次任意元素试炼副本。
+        // 「累积消耗体力」与「创建一次房间」按用户要求都不做（2026-10-30：创建房间只会点
+        // 「前往」导航一圈，不做任何事，且会把任务停在房间页，故整条分支已删除）。
         // 直接挂各任务的「前往」节点：DailyTaskRowGo 会同时校验标题和同行「前往」，
         // 已完成（按钮变成「领取/已完成」）或不在列表里的任务会自然失败并跳到下一个候选。
         "action": {
@@ -292,7 +293,6 @@
         "next": [
             "Daily_Go_Slime",
             "Daily_Go_ElementTrial",
-            "Daily_Go_CreateRoom",
             "Daily_NoMoreTask"
         ]
     },
@@ -448,75 +448,5 @@
         "action": {
             "type": "DoNothing"
         }
-    },
-    "Daily_Go_CreateRoom": {
-        "max_hit": 1,
-        "recognition": {
-            "type": "Custom",
-            "param": {
-                "custom_recognition": "DailyTaskRowGo",
-                "custom_recognition_param": {
-                    "title": ".*创建.*房间.*"
-                }
-            }
-        },
-        "action": {
-            "type": "Click"
-        },
-        "post_delay": 500,
-        "timeout": 2000,
-        "next": [
-            "Daily_AlreadyOnDailyPage",
-            "Daily_BackToDailyPage"
-        ]
-    },
-    "Daily_AlreadyOnDailyPage": {
-        // 「已经在每日任务列表页」判定：创建房间的「前往」只做导航，命中即结束该分支、什么都不做，
-        // 这样导航往返回来时不会在列表页上再点一次返回。
-        // 史莱姆宝库 / 火元素试炼已改为「前往 → 回主页 → 玩法挑战 → 回每日任务页」，不再使用本节点。
-        "recognition": {
-            "type": "OCR",
-            "param": {
-                "roi": [
-                    420,
-                    225,
-                    240,
-                    50
-                ],
-                "expected": [
-                    "每天05:00刷新"
-                ]
-            }
-        },
-        "action": {
-            "type": "DoNothing"
-        },
-        "timeout": 2000
-    },
-    "Daily_BackToDailyPage": {
-        "max_hit": 4,
-        // 从「前往」落地的页面返回每日任务列表页（左下角图标返回按钮，与每日任务页是同一个控件）。
-        // max_hit 4：返回层级有限，异常画面下也不会连点退到主页。
-        "recognition": {
-            "type": "TemplateMatch",
-            "param": {
-                "roi": [
-                    0,
-                    1180,
-                    200,
-                    100
-                ],
-                "template": [
-                    "Daily/BackButton.png",
-                    "Daily/BackButton2.png"
-                ],
-                "threshold": 0.8
-            }
-        },
-        "action": {
-            "type": "Click"
-        },
-        "post_delay": 500,
-        "timeout": 2500
     }
 }
