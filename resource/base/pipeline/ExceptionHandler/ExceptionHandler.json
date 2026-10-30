@@ -450,13 +450,36 @@
     "Exception_Restart": {
         // 兜底（回主页失败 / 重试耗尽）：关闭游戏进程 → 重新执行启动游戏工作流 → 停在主界面，
         // 然后把控制权交回调用方（此时在主界面，调用方能从主页重新进入自己的流程）。
-        // 复用 LaunchGame 的现有链路：StopApp → LaunchGame_Start（登录 / 热更新异常 / StartApp）。
+        // 复用 LaunchGame 的现有链路：StopApp → LaunchGame_Launch（登录 / 热更新异常 / StartApp）
+        // → LaunchGame_AtMainHub → LaunchGame_Done（无 next，子链到此结束）。
+        //
+        // ⚠️ 这里**绝对不能**写成 "[JumpBack]LaunchGame_StopApp"（原写法，已修）：
+        //    [JumpBack] 的语义是"子链跑完后弹栈、回到本节点重新评估 next 列表"——
+        //    子链以 LaunchGame_Done 结束（其时游戏**刚回到主页**）→ 弹栈 → 本节点 next 只有
+        //    一条且 LaunchGame_StopApp 是无条件命中的 → 立刻又杀进程 → 再启动 → 再到主页 →
+        //    再弹栈…… 实测日志（dist/package-mfaa/debug/maafw.log 2026-10-30）：
+        //      09:05:11 push jumpback_stack: Exception_Restart
+        //      09:06:21 LaunchGame_AtMainHub hit → 09:06:21 LaunchGame_Done
+        //      09:06:22 pop  jumpback_stack: Exception_Restart
+        //      09:06:22 LaunchGame_StopApp hit      ← 刚回主页又被杀
+        //      09:06:27 push jumpback_stack: Exception_Restart  ← 又一轮
+        //    用户看到的「异常重启后回到主页，依旧不停重启、永远回不到任务」就是这条死循环。
+        //    判据：next 里唯一的 [JumpBack] 目标若是**无条件命中**的节点（没有 recognition），
+        //    弹栈后的重评估必然再次命中它 —— 这类组合一律不能出现在 [JumpBack] 位置。
+        //    同理见 GameplayChallenge_UnknownFallback 注释里的 Exception_AtHub 案例。
+        //
+        // max_hit 3：冷重启一次约 60s，给 3 次机会足够覆盖偶发的登录/更新抖动；
+        // 用尽后本节点不再命中，控制权沿调用方 next 链继续回退，由循环控制器按既有次数上限收尾，
+        // 不会再出现"一直重启个不停"。
+        // ⚠️ max_hit 计数是跨 run_task 累加的（本任务的 ResetCount 不会清它），所以这是**整轮运行**的
+        //    总预算，不要调得太大，否则一次卡死会把后面所有任务的恢复额度都用光。
+        "max_hit": 3,
         "action": {
             "type": "DoNothing"
         },
         "timeout": 3000,
         "next": [
-            "[JumpBack]LaunchGame_StopApp"
+            "LaunchGame_StopApp"
         ]
     },
     "Exception_CloseIcon": {

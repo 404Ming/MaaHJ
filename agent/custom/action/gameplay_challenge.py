@@ -27,11 +27,28 @@ BATTLE_ENTER_NODE = "GameplayChallenge_BattleEnter"
 # 登记一场战斗前有界轮询它：结算过渡屏「点击空白处继续」也会走到 BattleEnter，
 # 那一屏没有战斗 HUD，不校验就会被白记成一场战斗（实测"计划 3 次却登记到 4/3"）。
 BATTLE_PRESENCE_NODE = "GameplayChallenge_BattlePresence"
-# 等战斗加载出来的默认上限。实测点「开始战斗」后战斗画面约 2.5s 出现，5s 足够；
-# ⚠️ 不要再放大：这段时间是**阻塞**的，如果当前其实是结算页而不是战斗页，
-#    等满就会把游戏「2S后自动再次挑战」的窗口整个让出去（实机：结算页按钮一次都没点到，白打 3 局）。
-_BATTLE_PRESENCE_TIMEOUT = 5.0
+# 等战斗加载出来的默认上限（秒）。
+# ⚠️ 实测这条链分两段：点「开始战斗」后先进一段**没有任何 UI 的过场底图**
+#    （证据：_test_out/active/b3_battle.png；同刻 BattlePresence 的 OCR all_results=[] ，
+#      连续 6 次轮询 09:04:05~09:04:10 全是空），战斗 HUD 才淡入。
+#    这台机器上 HUD 出现时间实测 6~18s（2026-10-30 09:04 那次是 09:04:03 点开始、
+#    09:04:20~23 才认到「跳过回合」），旧的 5s 预算必然漏登记 —— 漏登记后
+#    BATTLE_SCOPED_NODES 不复位 → SettleWait 的 max_hit 跨尝试用尽 → BattleLoop 落进
+#    UnknownFallback → Exception_Restart 冷重启游戏（用户看到的「无法识别战斗画面」）。
+# 因此放大到 20s；为了不把「体力不足打不起来」也拖满 20s，轮询时同帧顺带判「补充体力」，
+# 一出现就立刻放弃等待（下面 `_refill_dialog_visible`）。
+# 结算过渡屏那条路径走的是 GameplayChallenge_BattleEnterQuick（wait=0.3），不受这里影响。
+_BATTLE_PRESENCE_TIMEOUT = 20.0
 _BATTLE_PRESENCE_POLL = 0.8
+# 「补充体力」探测（与 Exception_Stamina / SettleRefillGate 同 ROI、同文案）：
+# 等待期间一旦出现就说明这场战斗不会开始了，立刻收手交给 BattleLoop 的补体力门控。
+_REFILL_PROBE_NODE = "GameplayChallenge_RefillProbe"
+_REFILL_PROBE_ROI = (180, 120, 380, 100)
+# 「这场战斗已经打过」/「这场不会打了」的两条旁证，都直接复用 Pipeline 里已验证的节点识别：
+#   VICTORY_NODE      战斗胜利过渡屏（底部「点击空白处继续」，OCR box 实测 (273,1196,146,26) score 1.0）
+#   BATTLE_FAILED_NODE 作战失败结算页（「作战失败」大字，实测 box (240,190,239,71)）
+VICTORY_NODE = "GameplayChallenge_ResultTeamContinue"
+BATTLE_FAILED_NODE = "BackToMainHub_BattleFailed"
 # 过渡屏之后（ResultTeamContinue「点击空白处继续」）用的"只看一眼、不等"预算：
 # 那一屏后面可能是结算页，必须**尽快**把控制权还给 BattleLoop 去点「挑战下一关」/「确认」。
 _BATTLE_PRESENCE_QUICK = 0.3
@@ -57,13 +74,20 @@ class _BattleRecord:
 
     MaaFramework 每个 Tasker 串行执行节点，因此模块级单例即可承载跨节点的
     战斗次数状态。`planned` 是本次任务计划挑战的次数（「挑战次数」选项），
-    `entered` 是已经真正开始过的战斗次数（BattleModuleRecord 每进一次战斗 +1）。
+    `entered` 是已经真正打过（且只算一次）的战斗次数。
     结算页用「挑战下一关」快速再战时，同一次 run_task 里会连打多局，
     所以循环控制器用 `entered` 而不是 run_task 的次数来判断进度。
+
+    `pending`：有一场已经开打、但开战时没能确认下来的战斗。
+    只在 `BattleModuleRecord` 开战判定"超时且什么都没认到"时置位，
+    由结算页的 `BattleSettledReport` 补登记 —— 这是**同一场战斗的延后登记**，
+    不是第二次计数：开战时确认成功就直接 +1 并保证 pending=False，
+    所以一局胜利永远只算一次。
     """
 
     planned: int = 0
     entered: int = 0
+    pending: bool = False
 
 
 _record = _BattleRecord()
@@ -88,6 +112,49 @@ def _parse_times(raw: object) -> int | None:
     if times < MIN_TIMES or times > MAX_TIMES:
         return None
     return times
+
+
+def _commit_battle_entered(context: Context, source: str | None) -> None:
+    """把「这一场战斗」记进进度里，并且只记一次。
+
+    `source=None`   —— 开战时当场确认（战斗 HUD 在场 / 已站在胜利过渡屏）；
+    `source="结算页"` —— 开战时没认到、由结算页按钮（`BattleSettledReport`）补登记。
+
+    ⚠️ 这两个入口是**互斥**的同一场战斗：开战时确认成功会顺手把 `pending` 清掉，
+    结算页只在 `pending` 还挂着时才补登记，所以一局胜利永远只 +1。
+    补登记时不再重复复位命中计数 / 改「挑战下一关」开关 —— 那些在开战时已经做过，
+    而且此刻结算页正被点击，改了反而会打乱本轮的收尾。
+    """
+    if source is not None and not _record.pending:
+        return
+    if _record.planned <= 0:
+        # 没有「挑战次数」上下文（例如 Knights 复用结算页节点时）：只点击，不记任何进度
+        _record.pending = False
+        return
+    _record.pending = False
+    _record.entered += 1
+    remaining = _record.planned - _record.entered
+
+    if source is None:
+        for node_name in BATTLE_SCOPED_NODES:
+            context.clear_hit_count(node_name)
+        context.override_pipeline({NEXT_STAGE_NODE: {"enabled": remaining > 0}})
+        logger.info("第 {}/{} 次挑战已进入战斗。", _record.entered, _record.planned)
+        return
+
+    # 补登记路径：
+    # · 只更新「挑战下一关」开关，**不**复位命中计数 —— 此刻正站在结算页上，
+    #   复位 ResultNextStage 的 max_hit 会让同一张结算页再点一次再战，多打一局。
+    # · 计数天然滞后一场（开战时没认到，直到结算页才知道打过），所以本轮
+    #   「挑战下一关」这一次点击是按滞后值决定的：最坏多打一局，但有 max_hit 1 兜底，
+    #   下一次结算就会落到「确认」收尾，不会失控。
+    context.override_pipeline({NEXT_STAGE_NODE: {"enabled": remaining > 0}})
+    logger.info(
+        "第 {}/{} 次挑战：{} 认出战斗已结束，补登记这一场。",
+        _record.entered,
+        _record.planned,
+        source,
+    )
 
 
 @AgentServer.custom_action("GameplayChallengeLoop")
@@ -126,6 +193,7 @@ class GameplayChallengeLoop(CustomAction):
 
         _record.planned = times
         _record.entered = 0
+        _record.pending = False
         logger.info("玩法挑战开始：计划挑战 {} 次。", times)
 
         stuck = 0
@@ -142,6 +210,17 @@ class GameplayChallengeLoop(CustomAction):
             )
 
             before = _record.entered
+            # 每次尝试开头把战斗内带 max_hit 的节点计数清零。
+            # ⚠️ 这些计数跨 run_task 累加：原来只在「战斗被成功登记」时由 BattleModuleRecord 复位，
+            #    一旦某一轮没登记上（战斗加载慢 / 体力不足），SettleWait 的 12 次预算就会被连续几次
+            #    尝试慢慢吃光，BattleLoop 的 next 全部落空 → 落进 UnknownFallback → 冷重启游戏。
+            #    每次尝试开头无条件复位，单次尝试内的预算就永远够用。
+            for node_name in BATTLE_SCOPED_NODES:
+                context.clear_hit_count(node_name)
+            # 新一次尝试从副本详情页/主页开始，还没有任何战斗开始打：
+            # 上一轮万一留下"待结算补登记"的 pending，必须在这里清掉，
+            # 否则本轮第一次点结算「确认」会把上一轮那场重复算进来。
+            _record.pending = False
             # 结算页「挑战下一关」只在后面还有次数时启用：打满次数就关掉它，
             # 让结算页走「确认」退回副本详情页收尾，不会多打一局、多扣一次体力。
             override = {
@@ -202,13 +281,15 @@ class BattleModuleRecord(CustomAction):
 
             {
                 "times": 2,
-                "wait": 5.0
+                "wait": 20.0
             }
 
-    `wait` 可选，默认 `_BATTLE_PRESENCE_TIMEOUT`（秒）：等战斗画面出现的上限。
-    ⚠️ 它是**阻塞**时间，别乱放大：如果本节点是被结算过渡屏走到的，等满就等于把
-    游戏「2S后自动再次挑战」的窗口让出去（实机后果：结算页「挑战下一关」「确认」一次都没点到，
-    还白打了几局）。过渡屏路径请用 `GameplayChallenge_BattleEnterQuick`（wait=0.3）。
+    `wait` 可选，默认 `_BATTLE_PRESENCE_TIMEOUT`（20s）：等战斗画面出现的上限。
+    ⚠️ 这是**阻塞**时间，只给"确实会开战"的两条路径（FormationStart 点「开始战斗」、
+    ResultNextStage 点「挑战下一关」）用；结算过渡屏那条路径必须用
+    `GameplayChallenge_BattleEnterQuick`（wait=0.3），否则会把游戏「2S 后自动再次挑战」
+    的窗口整个让出去（实机后果：结算页「挑战下一关」「确认」一次都没点到，还白打了几局）。
+    等待期间同帧会探测「补充体力」弹窗，一出现就立刻结束等待（不会把打不起来的场景拖满 20s）。
     """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
@@ -230,25 +311,82 @@ class BattleModuleRecord(CustomAction):
         # 先确认这一刻真的在打：结算过渡屏「点击空白处继续」也会走到本节点。
         # 等不到就**不登记**，但仍然返回成功（返回失败会弄断 BattleLoop 的 next 链）。
         # 等待预算可由节点参数 wait 覆盖：
-        #   GameplayChallenge_BattleEnter      默认 5s（点「开始战斗」/「挑战下一关」后有加载过场）
+        #   GameplayChallenge_BattleEnter      默认 20s（点「开始战斗」/「挑战下一关」后有无 UI 加载过场）
         #   GameplayChallenge_BattleEnterQuick 0.3s（过渡屏之后只看一眼）
+        # accept_victory 只有"带 times 的 BattleEnter"才开：
+        #   战斗 1s 内结束、HUD 采样不到时，靠「战斗胜利」过渡屏反推这一场确实打过；
+        #   BattleEnterQuick 本身是从那一屏往下走的，对它开就等于重复登记。
         wait = _parse_wait(params.get("wait"))
-        if not _wait_for_battle_presence(context, wait):
-            logger.warning(
-                "BattleModuleRecord: {:.1f} 秒内没有出现战斗画面，本次不登记（多半是结算过渡屏），"
-                "交给 BattleLoop 继续处理。",
-                wait,
+        started = times is not None
+        reason = _probe_battle(context, wait, accept_victory=started)
+
+        if reason == "victory":
+            logger.info(
+                "BattleModuleRecord: 战斗画面没能采样到，但已经站在「战斗胜利」过渡屏上（极短战斗），按已进入战斗登记。"
             )
+        elif reason == "refill":
+            logger.info("BattleModuleRecord: 等到「补充体力」弹窗，这场战斗不会开始了，提前结束等待。")
+        elif reason == "failed":
+            logger.info("BattleModuleRecord: 认出「作战失败」结算页，这场没有可登记的战斗，提前结束等待。")
+
+        if reason not in ("hud", "victory"):
+            if started and reason == "timeout":
+                # 开战时什么都没认到（既没有战斗 HUD，也没有胜利过渡屏，也不是体力/失败）：
+                # 先挂起，等结算页的 BattleSettledReport 再补登记。这是**同一场的延后登记**，
+                # 不是额外的一次计数 —— 所以不会出现"一局胜利算 2 次"。
+                _record.pending = True
+                logger.warning(
+                    "BattleModuleRecord: {:.1f} 秒内没认到战斗画面，先挂起这一场，"
+                    "等结算页「挑战下一关 / 确认」时再补登记。",
+                    wait,
+                )
+            else:
+                logger.warning(
+                    "BattleModuleRecord: {:.1f} 秒内没有出现战斗画面，本次不登记（多半是结算过渡屏），"
+                    "交给 BattleLoop 继续处理。",
+                    wait,
+                )
             return CustomAction.RunResult(success=True)
 
-        _record.entered += 1
-        remaining = _record.planned - _record.entered
+        _commit_battle_entered(context, None)
+        return CustomAction.RunResult(success=True)
 
-        for node_name in BATTLE_SCOPED_NODES:
-            context.clear_hit_count(node_name)
-        context.override_pipeline({NEXT_STAGE_NODE: {"enabled": remaining > 0}})
 
-        logger.info("第 {}/{} 次挑战已进入战斗。", _record.entered, _record.planned)
+@AgentServer.custom_action("BattleSettledReport")
+class BattleSettledReport(CustomAction):
+    """结算页按钮（「挑战下一关」/「确认」）：点掉按钮 + 回报"这一场已经打完"。
+
+    挂载位置：`GameplayChallenge_ResultNextStage` / `GameplayChallenge_ResultConfirm`
+    （原来都是 `Click`，点击行为完全等价，只是多了一步回报）。
+
+    为什么要回报：开战时 `BattleModuleRecord` 可能什么都没认到 ——
+    战斗 HUD 只闪一下（极短战斗）、连「战斗胜利」过渡屏也没采样到（它有 2S 自动切页）。
+    那一场就漏登记了。能走到结算页说明战斗**确实已经结束**，这是最后一次补登记的机会。
+
+    ⚠️ 绝不重复计数：
+      · 开战时确认成功 → `_commit_battle_entered(None)` 已经 +1 且把 `pending` 清掉，
+        这里 `pending` 为 False，直接跳过；
+      · 同一张结算页可能被点多次（`ResultConfirm.max_hit` 20）→ 第一次补登记后 `pending`
+        立刻清掉，后面几次同样跳过；
+      · 每次 `run_task` 尝试开头由 `GameplayChallengeLoop` 清 `pending`，
+        上一轮遗留的挂起不会算到本轮头上。
+
+    返回失败会弄断监督节点的 next 链，所以只在识别框无效时返回失败。
+
+    Examples:
+        `custom_action_param`::
+
+            {}   # 本动作不需要参数
+    """
+
+    def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        box = argv.box
+        if box.w <= 0 or box.h <= 0:
+            logger.error("BattleSettledReport: 识别框无效 {}，跳过本次点击。", box)
+            return CustomAction.RunResult(success=False)
+
+        context.tasker.controller.post_click(box.x + box.w // 2, box.y + box.h // 2).wait()
+        _commit_battle_entered(context, "结算页「挑战下一关/确认」")
         return CustomAction.RunResult(success=True)
 
 
@@ -450,13 +588,71 @@ def _parse_wait(raw) -> float:
     return min(30.0, max(0.0, value))
 
 
-def _wait_for_battle_presence(context: Context, timeout: float = _BATTLE_PRESENCE_TIMEOUT) -> bool:
-    """在有界时间内等「战斗画面已在场」（左上「战斗剩余时间 39:5x」/「第N回合」）。
+def _refill_dialog_visible(context: Context, img) -> bool:
+    """当前帧里有没有「补充体力」弹窗（复用同一帧，不额外截图）。识别异常按"没有"处理。"""
+    pipeline = {
+        _REFILL_PROBE_NODE: {
+            "recognition": {
+                "type": "OCR",
+                "param": {
+                    "roi": list(_REFILL_PROBE_ROI),
+                    "expected": ["补充体力"],
+                    "threshold": 0.2,
+                },
+            },
+            "action": {"type": "DoNothing"},
+        }
+    }
+    try:
+        detail = context.run_recognition(_REFILL_PROBE_NODE, img, pipeline)
+    except Exception:  # noqa: BLE001  探测失败只影响"提前收手"，不该打断等待
+        return False
+    return bool(detail is not None and detail.hit)
+
+
+def _node_hit(context: Context, node: str, img) -> bool:
+    """当前帧能不能命中某个已有 Pipeline 节点的识别（只跑识别、不执行动作、不额外截图）。
+
+    直接复用 Pipeline 里已经过实机验证的 ROI/文案，避免在这里另抄一份坐标漂移。
+    识别异常按"没命中"处理 —— 探测只是优化，不该打断等待。
+    """
+    try:
+        detail = context.run_recognition(node, img)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(detail is not None and detail.hit)
+
+
+def _probe_battle(
+    context: Context,
+    timeout: float = _BATTLE_PRESENCE_TIMEOUT,
+    *,
+    accept_victory: bool = False,
+) -> str:
+    """在有界时间内探测「这一场到底有没有打起来」，返回结束原因：
+
+      "hud"     —— 左上战斗 HUD（「战斗剩余时间 …」/「第N回合」）在场，确定在战斗；
+      "victory" —— 已站在战斗胜利过渡屏（「点击空白处继续」）上，战斗已结束；
+      "refill"  —— 等到了「补充体力」弹窗，这场打不起来；
+      "failed"  —— 认到「作战失败」结算页；
+      "timeout" —— 到点都没认到任何东西。
 
     为什么必须等：`GameplayChallenge_BattleEnter` 会被结算过渡屏「点击空白处继续」
     那一步直接走到，而那一屏还没有战斗 HUD；无条件登记就会给"已完成挑战次数"白送 +1
     （实测日志里计划 3 次却登记到第 4/3 次）。游戏自己的 2S 自动再战也在这个窗口内开出战斗，
     所以等一等能同时正确处理"过渡屏之后真的又开了一局"的情况。
+
+    为什么预算要放大到 20s：点「开始战斗」后先是一段**没有任何 UI 的过场底图**（实测见
+    `_BATTLE_PRESENCE_TIMEOUT` 的注释），HUD 要 6~18s 才淡入；旧 5s 预算在这台机器上必然漏登记。
+
+    `accept_victory`（默认关）：给「战斗在 1s 内结束」这种极短战斗兜底。
+    一击必杀 / 自动战斗已经把怪清完时，战斗 HUD 可能只闪一下甚至一次都采样不到，
+    光靠 HUD 就永远等不到 → 这场白打、挑战次数不累加。此时**战斗胜利过渡屏
+    （「点击空白处继续」）就是"这一场确实打过"的铁证**：它只在战斗结束后出现，
+    而带 `times` 的 `GameplayChallenge_BattleEnter` 只会从"真开战"的两个入口
+    （FormationStart 点「开始战斗」 / ResultNextStage 点「挑战下一关」）进来。
+    ⚠️ 只允许 `BattleEnter` 打开它：`GameplayChallenge_BattleEnterQuick` 本身就是**从**
+    那一屏往下走的（`ResultTeamContinue.next`），对它就等于重复登记一场。
 
     ⚠️ 为什么不能反过来用 pipeline 的识别门控去卡 BattleEnter：它挂在
     `ResultTeamContinue.next` 上，**next 链失败会把整条 BattleLoop 监督链判死** ——
@@ -470,12 +666,31 @@ def _wait_for_battle_presence(context: Context, timeout: float = _BATTLE_PRESENC
             detail = context.run_recognition(BATTLE_PRESENCE_NODE, img)
         except Exception as error:  # noqa: BLE001  识别异常按"没在场"处理，不能因此中断链路
             logger.warning("BattleModuleRecord: 战斗画面锚点识别异常：{}", error)
-            return False
+            return "timeout"
         if detail is not None and detail.hit:
-            return True
+            return "hud"
+        if accept_victory and _node_hit(context, VICTORY_NODE, img):
+            return "victory"
+        if _refill_dialog_visible(context, img):
+            return "refill"
+        if _node_hit(context, BATTLE_FAILED_NODE, img):
+            return "failed"
         if time.time() >= deadline:
-            return False
+            return "timeout"
         time.sleep(_BATTLE_PRESENCE_POLL)
+
+
+def _wait_for_battle_presence(
+    context: Context,
+    timeout: float = _BATTLE_PRESENCE_TIMEOUT,
+    *,
+    accept_victory: bool = False,
+) -> bool:
+    """`_probe_battle` 的布尔版：只关心"战斗是不是确实在场/确实打过"。
+
+    外部模块（自动挂机 / 副本挑战 / 终末之战 / 机神降临）只用到这个语义，保持签名不变。
+    """
+    return _probe_battle(context, timeout, accept_victory=accept_victory) in ("hud", "victory")
 
 
 def _hit(context: Context, roi, expected: str):

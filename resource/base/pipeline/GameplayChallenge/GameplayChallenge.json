@@ -475,7 +475,8 @@
         // 它挂在 FormationStart / ResultNextStage 的 next 上，而 next 链一旦失败会**把整个
         // BattleLoop 监督链判死** —— 实测给它加 OCR 门控后，"战斗还没开出来"的那一瞬识别失败，
         // 整轮 run_task 立即结束，结算页再无人处理，游戏自己又开一局又没人登记，最后任务失败。
-        // 因此"战斗是否在场"的判定放在 BattleModuleRecord 里做有界等待（默认 5s），
+        // 因此"战斗是否在场"的判定放在 BattleModuleRecord 里做有界等待（默认 20s，
+        // 见 agent 侧 _BATTLE_PRESENCE_TIMEOUT：点开战后先有一段无 UI 过场底图，HUD 要 6~18s 才淡入），
         // 锚点识别单独放在下面的 GameplayChallenge_BattlePresence 节点，只给 Python 调用。
         "action": {
             "type": "Custom",
@@ -503,7 +504,7 @@
         //    wait=0.3 的语义：若此刻**已经**在战斗中（例如过渡屏发现得太晚、自动再战已经开了）
         //    就正常登记，否则立刻放弃登记、交回 BattleLoop。
         //    真正需要登记的战斗由 FormationStart / ResultNextStage 两条路径上的 BattleEnter 负责
-        //    （那两处战斗一定会加载出来，给足 5s 不会漏计）。
+        //    （那两处战斗一定会加载出来，给足 20s 不会漏计）。
         // 本节点不配 times：它只做登记前的在场判定，planned 已由 BattleEnter 设置过。
         "action": {
             "type": "Custom",
@@ -585,8 +586,10 @@
     "GameplayChallenge_SettleRefillGate": {
         // 战斗/结算阶段的补体力门控：命中说明结算自动再战（或其它扣体力动作）被体力拦住、弹出了「补充体力」界面。
         // 两个入口都会走到它：BattleLoop 的 next 首位，以及 ResultNextStage（点完「挑战下一关」）的 next 首位。
-        // 后者是必须的——点「挑战下一关」被体力拦住时，BattleEnter 会白等 5s 战斗在场判定才交回，
+        // 后者是必须的——点「挑战下一关」被体力拦住时，BattleEnter 会白等战斗在场判定才交回，
         // 把这个门控放前面可以立刻接住弹窗直接进补体力流程。
+        // （BattleEnter 的在场等待虽然已放宽到 20s，但等待期间同帧会探测「补充体力」，一出现就立刻收手，
+        //   所以这条门控仍然抢在它前面，不会因为放宽预算而变慢）
         // 补满体力后先经 SettleRetryReset 复位结算页命中计数，再回到 BattleLoop 重新判断：
         // 已经回到副本详情页由 OnceDone 收尾；还停在结算页则重新由 ResultNextStage 点「挑战下一关」，
         // 不会卡死、不会白扣一次体力，也不会把没打的第 2 次挑战错收成「确认」。
@@ -692,10 +695,15 @@
         //          ⚠️ 点「挑战下一关」时**体力不足会先弹「补充体力」而不是开战**，这次点击已经把
         //          max_hit 用掉；补完体力回到结算页时本节点会被直接跳过 → 落到 ResultConfirm 点「确认」
         //          → 挑战次数打不满（实测 bug）。所以 next 首位挂 SettleRefillGate 先兜掉「补充体力」
-        //          （否则要白等 BattleEnter 的 5s 战斗在场判定），并在补体力收尾处用
+        //          （否则要白等 BattleEnter 的战斗在场判定），并在补体力收尾处用
         //          GameplayChallenge_SettleRetryReset 复位结算页各节点的命中计数。
         // ROI 左侧按钮带（实测 OCR 文本 box (96,1193,129,32) score 1.000；按钮 y 约 1175~1235），
         // 点击目标用识别框中心，即按钮内部。
+        //
+        // 动作是 Custom:BattleSettledReport（等价于原来的 Click，点识别框中心），
+        // 额外做一件事：把"走到结算页 = 这一场已经打完"回报给战斗模块，给开战时没登记上的
+        // 那一场补登记（极短战斗 HUD 采样不到时靠它兜）。**只补一次**，不会和开战时的
+        // 登记重复 —— 详见 agent/custom/action/gameplay_challenge.py 的 `_commit_battle_entered`。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -711,7 +719,10 @@
             }
         },
         "action": {
-            "type": "Click"
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleSettledReport"
+            }
         },
         "post_delay": 500,
         "timeout": 1200,
@@ -761,6 +772,8 @@
         "max_hit": 20,
         // 战斗结算界面的「确认」（左侧是「挑战下一关」/「4S后自动再次挑战」倒计时，右侧是「确认」）。
         // 退回副本详情页，是打满次数或副本没有「挑战下一关」时的正常收尾路径（OnceDone 接着判定本轮结束）。
+        // 动作同 ResultNextStage：Custom:BattleSettledReport（点确认 + 回报"这一场已打完"）。
+        // ⚠️ 本节点被 Knights（公会挖宝）用 [JumpBack] 复用，改动作后行为对它是等价的（点 + 无害回报）。
         "recognition": {
             "type": "OCR",
             "param": {
@@ -776,7 +789,10 @@
             }
         },
         "action": {
-            "type": "Click"
+            "type": "Custom",
+            "param": {
+                "custom_action": "BattleSettledReport"
+            }
         },
         "post_delay": 500,
         "timeout": 1200
