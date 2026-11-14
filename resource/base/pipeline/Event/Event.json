@@ -1,6 +1,773 @@
 {
+    // 活动（当前版本 = 「蒸汽国度」）任务的状态机。
+    // 实机 2026-11-12（127.0.0.1:16512，720x1280）逐跳取证：
+    //   主页右列「蒸汽国度」(631,849,77,24) 可直达活动页；菜单 →「活」→ 活动一览 →「蒸汽国度」卡是兜底路径。
+    //   活动页：自动探索结束会显示「自动探索已结束 / 探索收获」(300,606,142,44)，点它弹
+    //     「自动获取收获」面板，再点「收获奖励」(305,738,109,38) 领奖，随后叠「恭喜获得」浮层；
+    //   正在探索时显示「自动探索中」(307,557,113,24) +「停止自动探索」(270,609,205,41)，
+    //     点它弹同款面板，左「停止探索」(173,737,108,37)、右「收获奖励」(439,740,106,33)；
+    //     点「停止探索」奖励自动获得并弹「恭喜获得」（实测空奖励也会弹）。
+    //   领完/停完页面变成「探索」(390,606,82,46) +「自动探索」(607,653,101,33) 两个按钮；
+    //   「自动探索」面板文案「探索次数：1 / 1/500」，确认按钮是「探索」(463,789,57,32)、取消 (198,786,60,36)。
+    //   三档难度（用户指定）：简单 =「简单副本/蒸汽虫」(59,1070,103,31) 挑战 (221,1137,76,41)、
+    //     普通 =「普通副本/蒸汽人偶」(401,1068,101,33) 挑战 (559,1137,80,41)、
+    //     困难 = 中部 Boss「暴走蒸汽人偶」(78,777,195,37) 挑战 (575,985,57,32)
+    //     （当前版本没有直接叫「困难副本」的卡片，第三档就是这张 Boss 卡）。
+    // ⚠️ 与机神降临同款功能的点位差异：机神降临「探索」在 y≈1068、「自动探索」在 y≈1068、
+    //    「开启探索」按钮叫「开启探索」；本活动分别在 y≈606 / y≈653，确认按钮叫「探索」，
+    //    且面板是「探索次数」而非「N小时」，所以不能复用机神降临的节点/ROI/Python 常量。
     "Event_Start": {
-        // TODO: 待实现活动逻辑。
+        // 监督节点：DirectHit（识别永不失败 → on_error 永不触发），末位必须挂保险丝 + StopTask。
+        // 候选顺序：公共异常 → 导航 → 各层弹窗/面板 → 活动页锚点 → 收尾。
+        // 弹窗候选必须排在 PageDock 之前：本活动的「自动探索」设置面板是半透明遮罩，
+        // 背景的「蒸汽国度 / 简单副本」等文字仍能被 OCR 读到，先判页面会把弹窗漏掉。
+        "action": {
+            "type": "DoNothing"
+        },
+        // 18 个候选逐个截图识别，给足预算（机神降临 8 个候选用 16000ms 的实测教训）
+        "timeout": 20000,
+        // ⚠️ 弹窗/面板候选必须排在导航候选之前：实测「每日登录」框正文是
+        //    「活动期间每日首次登录可获得200蒸汽钥匙」(137,646,445,27)，落进菜单页「活」的 ROI
+        //    [120,575,130,100] 且包含「活」字 —— 导航候选放前面会先命中并点在正文中，
+        //    把领登录奖这一步整段跳掉（2026-11-12 离线状态机复现）。
+        // ⚠️ 探索段是**两阶段**，用 Event_EnableRestart 做单向切换：
+        //    阶段① 只启用「停止 / 领取」，阶段② 只启用「重开」。若两阶段同时启用，
+        //    从「未在探索」起步会先重开、再被停止节点命中，出现「重开→停止→重开」来回折腾。
+        //    切换后页面停在「自动探索中」，由 PageDock 的 Or 兜住完成态。
+        "next": [
+            "[JumpBack]Exception_Start",
+            "[JumpBack]Event_DailyLoginPopup",
+            "[JumpBack]Event_StopRunningExplore",
+            "[JumpBack]Event_StopPanelConfirm",
+            "[JumpBack]Event_ClaimExploreReward",
+            "[JumpBack]Event_ClaimHarvest",
+            "[JumpBack]Event_EnableRestart",
+            "[JumpBack]Event_OpenAutoExplorePanel",
+            "[JumpBack]Event_ConfirmAutoExplore",
+            "[JumpBack]Event_OpenFromHub",
+            "[JumpBack]Event_OpenMenu",
+            "[JumpBack]Event_OpenActivityEntry",
+            "[JumpBack]Event_OpenEventCard",
+            "[JumpBack]Event_BackFromDetail",
+            "[JumpBack]Event_BackFromMap",
+            "Event_PageDock",
+            "[JumpBack]Event_UnknownFallback",
+            "Event_StopTask"
+        ]
+    },
+    // ---- 入口导航 -------------------------------------------------------------------
+    "Event_OpenFromHub": {
+        // 主页右列功能列里的「蒸汽国度」图标（实测 OCR box (631,849,77,24) score 1.000）。
+        // ROI 只框右列 y700~950：不碰上方「每日任务 / 古代之塔」(y≈629/740)，也不碰下方「公会争霸」(y≈958)，
+        // 更不会命中活动页左上大标题「蒸汽国度」(17,33,262,88)。
+        // max_hit 1：导航一次性，防止收尾回到主页后又跑一轮（机神降临实测事故）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    600,
+                    700,
+                    120,
+                    250
+                ],
+                "expected": [
+                    "蒸汽国度"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_OpenMenu": {
+        // 兜底导航第一跳：主页底部最右「菜单」（实测 (636,1228,57,36)，与 MachineGodDescent_OpenMenu 同款）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    580,
+                    1195,
+                    140,
+                    85
+                ],
+                "expected": [
+                    "菜单"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_OpenActivityEntry": {
+        // 兜底导航第二跳：菜单页左侧「活动」被 OCR 拆成「活」(157,600,44,42)+「动」(178,640,37,36)，
+        // 整串「活动」永远匹配不到，所以用单字「活」（与机神降临同一坑）。
+        // ⚠️ expected 必须锚成 ^活$：OCR 的 expected 是包含匹配，裸「活」会命中
+        //    「活动期间每日首次登录可获得…」这类长句（每日登录框正文就在同一个 ROI 里）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    120,
+                    575,
+                    130,
+                    100
+                ],
+                "expected": [
+                    "^活$"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_OpenEventCard": {
+        // 活动一览里的「蒸汽国度」卡（实测 OCR box (71,329,210,77) score 0.998）。
+        // 扫整个列表区：卡片排序随版本变化，固定槽位 ROI 会失效（机神降临 2026-10-19 实测教训）。
+        // 下界 800 避开主页右列「蒸汽国度」(y≈849)，不会在主页误命中。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    100,
+                    720,
+                    700
+                ],
+                "expected": [
+                    "蒸汽国度"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    // ---- 从活动内部页面恢复（任务在战斗/地图中途启动时）--------------------------------
+    "Event_BackFromMap": {
+        // 活动实时地图左下「返回」(实测 (67,1192,54,30))：点它退回主页，再由导航重新进活动页。
+        // max_hit 2：地图可能在详情页返回后再出现一次（详情页 → 地图 → 主页）。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    1150,
+                    220,
+                    130
+                ],
+                "expected": [
+                    "返回"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_BackFromDetail": {
+        // 普通档多人房间副本的详情页（「创建房间 / 加入房间」）：左下返回是纯图标没有文字，
+        // 只能点实测点位 (45,1185,45,55)（与 BackToMainHub 的返回图标同款）；点完落在地图，
+        // 再由 Event_BackFromMap 退回主页。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    0,
+                    0,
+                    720,
+                    1280
+                ],
+                "expected": [
+                    "创建房间"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    45,
+                    1185,
+                    45,
+                    55
+                ]
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    // ---- 入口弹窗 -------------------------------------------------------------------
+    "Event_DailyLoginPopup": {
+        // 当天首次进活动弹「每日登录」框（实测标题 (288,357,142,43)，正文「活动期间每日首次登录可获得200蒸汽钥匙」）。
+        // 拆成「判定 → 点确认」，点的是识别出来的按钮中心，不写死坐标。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    335,
+                    210,
+                    90
+                ],
+                "expected": [
+                    "每日登录"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Event_DailyLoginConfirm"
+        ]
+    },
+    "Event_DailyLoginConfirm": {
+        // 「确认」实测 (326,813,67,35)；点完约 1s 会叠「恭喜获得」浮层，由 Exception_Start 里的公共
+        // Exception_RewardClose 关掉（[JumpBack] 回本监督节点重新判定）。
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    300,
+                    790,
+                    130,
+                    80
+                ],
+                "expected": [
+                    "确认"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    // ---- 自动探索领取（开关「活动-自动探索领取」控制，默认开启）------------------------------
+    // 完整链（用户要求）：正在探索中 → 停止 → 领奖 → 重新开启；已结束 → 领奖 → 重新开启。
+    // ⚠️ 重开会真实消耗蒸汽钥匙（面板原文「每次探索消耗1个蒸汽钥匙…最多消耗500个」），
+    //    按面板默认探索次数（1）确认，不主动加次数。开关关闭时整段跳过（不点、不消耗）。
+    "Event_StopRunningExplore": {
+        // 「自动探索中」(307,557,113,24) 时的「停止自动探索」按钮 (270,609,205,41)。
+        // 实机 2026-11-12：点它弹「自动获取收获」面板（左「停止探索」、右「收获奖励」），
+        // 所以本节点只负责点停止，确认交给下一个候选。
+        // 阶段① 节点：重开前由 Event_EnableRestart 一次性禁用，重开后即使又出现「自动探索中」
+        // 也不会二次停止；max_hit 1 是额外保险丝。
+        "enabled": true,
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    580,
+                    260,
+                    90
+                ],
+                "expected": [
+                    "停止自动探索"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1000,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_StopPanelConfirm": {
+        // 停止面板左按钮「停止探索」(173,737,108,37)。实机：点它奖励自动获得并弹「恭喜获得」，
+        // 由 Exception_Start → Exception_RewardClose 关掉，页面回到「探索 / 自动探索」，再交给重开候选。
+        // ⚠️ 不能点右边的「收获奖励」(439,740,106,33)：刚开启探索时它是空奖励，实机点了没反应；
+        //    「停止探索」才是机神降临同款的「停止并保留奖励」动作。
+        // ROI 只框左按钮，不与 Event_ClaimHarvest 的 [280,700,155,150] 相交，两者不会互相顶替。
+        "enabled": true,
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    150,
+                    710,
+                    130,
+                    70
+                ],
+                "expected": [
+                    "停止探索"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1000,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_ClaimExploreReward": {
+        // 自动探索已结束时活动页中部的「探索收获」按钮（实测 (300,606,142,44)）。
+        // 只在有可领奖励时出现；领完变成裸「探索」，全串 expected 不会误命中 PageDock 的判据。
+        // max_hit 1 + enabled 开关：关闭时整段跳过（不点、不消耗）。
+        "enabled": true,
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    260,
+                    580,
+                    220,
+                    90
+                ],
+                "expected": [
+                    "探索收获"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 800,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    "Event_ClaimHarvest": {
+        // 「自动获取收获」面板里的「收获奖励」按钮（实测 (305,738,109,38)，与机神降临同点位同文案）。
+        // pre_delay 2000：面板有滑入/缩放动画，OCR 读到文字时按钮可能还没停稳（机神降临实测事故）。
+        // post_delay 1500：领完约 1s 叠「恭喜获得」浮层，留时间给它出现再回监督节点。
+        "enabled": true,
+        "max_hit": 1,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    280,
+                    700,
+                    155,
+                    150
+                ],
+                "expected": [
+                    "收获奖励"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "pre_delay": 2000,
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    // ---- 阶段闸门：停止/领奖做完 → 才允许重开 -------------------------------------------
+    "Event_EnableRestart": {
+        // 页面显示「自动探索」按钮 (607,653,101,33) = 已经停止 / 已领完 / 未在探索。
+        // 命中后把阶段①（停止、停止确认、领奖、收获）与自身一次性禁用，只启用阶段②（重开两节点），
+        // 然后回监督节点重判 —— 这样无论从「自动探索中」「已结束待领」还是「已停止」起步，
+        // 都单向收敛到「重开一次 → 自动探索中 → PageDock」。
+        // ⚠️ 必须用 enabled 而不是 max_hit：max_hit 只压命中次数，阶段①节点在重开后画面变化时
+        //    仍可能被重新识别；一次性禁用才是真正的单向门（离线状态机复现过来回折腾）。
+        "enabled": true,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    560,
+                    620,
+                    160,
+                    70
+                ],
+                "expected": [
+                    "自动探索"
+                ]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "NodeOverride",
+                "custom_action_param": {
+                    "Event_EnableRestart": {
+                        "enabled": false
+                    },
+                    "Event_StopRunningExplore": {
+                        "enabled": false
+                    },
+                    "Event_StopPanelConfirm": {
+                        "enabled": false
+                    },
+                    "Event_ClaimExploreReward": {
+                        "enabled": false
+                    },
+                    "Event_ClaimHarvest": {
+                        "enabled": false
+                    },
+                    "Event_OpenAutoExplorePanel": {
+                        "enabled": true
+                    },
+                    "Event_SetMaxExploreTimes": {
+                        "enabled": true
+                    },
+                    "Event_ConfirmAutoExplore": {
+                        "enabled": true
+                    }
+                }
+            }
+        },
+        "next": [
+            "Event_Start"
+        ]
+    },
+    // ---- 阶段② 重新开启自动探索（由 Event_EnableRestart 在运行时启用）---------------------
+    // ⚠️ 会真实消耗蒸汽钥匙：面板里的「探索次数」由 Event_SetMaxExploreTimes 拉到当前可用最大值
+    //    （上限 500，且不超过现有钥匙数），不再固定按 1 次开启。
+    // ⚠️ 点开面板 → **串联**确认节点，不回监督节点抢候选：实机 2026-11-12 踩过一次
+    //    「领完奖浮层刚关、点『自动探索』被过场吞掉 → 回 Start 时面板没开、PageDock 认到
+    //    半透明背景下仍可见的『探索』→ 直接进功能段，探索根本没重开」。
+    //    pre_delay 800 避过场、post_delay 1500 等面板动画，两个节点 max_hit 2 留一次重试；
+    //    重开成功后「自动探索」按钮消失，不会重复开启。
+    "Event_OpenAutoExplorePanel": {
+        "enabled": false,
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    560,
+                    620,
+                    160,
+                    70
+                ],
+                "expected": [
+                    "自动探索"
+                ]
+            }
+        },
+        "pre_delay": 800,
+        // ⚠️ 点的是**齿轮图标**，不是下方文字：实测 2026-11-14 该按钮是「蓝色圆形齿轮按钮
+        //    (626,600,62,62)，中心 (656,630)」+ 下方贴着「自动探索」文字 (607,653,101,33)，
+        //    文字中心 (657,669) 落在按钮下沿外 8px，按框中心点不会开面板（实机踩过：
+        //    13:49 两次运行都识别命中、点击后 ConfirmAutoExplore 一直认不到面板）。
+        //    文字框中心 + (0,-40) = (657,629) 正好落在齿轮中心，保留"坐标来自识别"。
+        "action": {
+            "type": "Click",
+            "param": {
+                "target_offset": [
+                    0,
+                    -40,
+                    0,
+                    0
+                ]
+            }
+        },
+        "post_delay": 1500,
+        "timeout": 3000,
+        "next": [
+            "Event_SetMaxExploreTimes"
+        ]
+    },
+    "Event_SetMaxExploreTimes": {
+        // 把面板里的「探索次数」拖到**当前可使用的最大值**（上限 500，且不超过现有蒸汽钥匙数）。
+        // 由 CustomAction 读「探索次数：N」/「N/500」/顶部钥匙数 → 拖滑块到右端 → OCR 复核；
+        // 拖不到目标也会按当前值继续开启（只告警，不拦流程）。
+        // 实测 2026-11-14：轨道 y=702，左端 x≈165（N=1）、右端 x≈575（N=500）。
+        "enabled": false,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "EventSetMaxExploreTimes",
+                "custom_action_param": {}
+            }
+        },
+        "timeout": 3000,
+        "next": [
+            "Event_ConfirmAutoExplore"
+        ]
+    },
+    "Event_ConfirmAutoExplore": {
+        // 面板确认按钮叫「探索」(463,789,57,32)，不是机神降临的「开启探索」。
+        // ROI 只框按钮带：活动页本身的「探索」(390,606) 与面板右上角「探索」(651,654) 都不在框内。
+        // timeout 4000：面板滑入动画期间 OCR 会连续几帧认不到，给足重试窗口。
+        "enabled": false,
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    420,
+                    750,
+                    120,
+                    90
+                ],
+                "expected": [
+                    "探索"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 1000,
+        "timeout": 3000,
+        "next": [
+            "Event_Start"
+        ]
+    },
+    // ---- 活动页锚点 / 功能段 ---------------------------------------------------------
+    "Event_PageDock": {
+        // 已站在活动页且无待处理弹窗，三种完成态都算：
+        //   ① 未在探索：「探索」(390,606,82,46)；
+        //   ② 默认重开后：「自动探索中」(307,557,113,24)；
+        //   ③ 探索已结束待领取：「自动探索已结束」+「探索收获」(303,610,139,38)。
+        // ③ 是 2026-11-14 补的：关掉「自动探索领取」时没有 ClaimExploreReward 去领奖，页面会一直停在
+        //    「探索收获」，旧 PageDock 只认 ①/② → 功能段永远进不去（用户实测：只开挑战不会进副本）。
+        // max_hit 1：功能段（含 N 次挑战）一次任务只跑一遍，防止收尾回主页后重入。
+        "max_hit": 1,
+        "recognition": {
+            "type": "Or",
+            "param": {
+                "any_of": [
+                    "Event_PageDockNormal",
+                    "Event_PageDockExploring",
+                    "Event_PageDockClaimable"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Event_LockNavigation"
+        ]
+    },
+    "Event_PageDockNormal": {
+        // 纯识别载体：未在探索时的「探索」按钮（实测 (390,606,82,46) score 1.000）。
+        // 「探索收获」是全串，不会匹配裸「探索」；自动探索面板打开时该位置被遮罩盖住，也不命中。
+        // ⚠️ 「自动探索中」时「停止自动探索」(268,608,207,43) 与本 ROI 重叠，OCR 会把裁出的
+        //    片段读成单字「探索」，本节点因此也会命中；无妨 —— Or 的另一路 Exploring 本来就命中，
+        //    且 Start 的候选顺序保证阶段①（停止/领取）排在 PageDock 前面，不会跳过。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    340,
+                    580,
+                    120,
+                    90
+                ],
+                "expected": [
+                    "探索"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "Event_PageDockExploring": {
+        // 纯识别载体：重开成功后页面显示「自动探索中」(307,557,113,24) score 1.000。
+        // ROI 只框这行小字，不碰下方「停止自动探索」(270,609,205,41)。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    280,
+                    530,
+                    180,
+                    60
+                ],
+                "expected": [
+                    "自动探索中"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "Event_PageDockClaimable": {
+        // 纯识别载体：自动探索已结束、奖励还没领时的活动页（实测「自动探索已结束」+「探索收获」(303,610,139,38)）。
+        // ⚠️ 「探索收获」是**全串**，不会命中 Event_PageDockNormal 的「探索」；
+        //    关掉「自动探索领取」时也没有 ClaimExploreReward 去领，页面就一直停在这里 → 必须单独认一个锚点。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    240,
+                    560,
+                    300,
+                    100
+                ],
+                "expected": [
+                    "探索收获"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000
+    },
+    "Event_LockNavigation": {
+        // 进入功能段后**立刻禁用所有导航候选**（复用公共 CustomAction「NodeOverride」）。
+        // ⚠️ 真机实测 2026-11-12：从主页右列「蒸汽国度」直达活动页时，只消耗了 1 个导航节点；
+        //    收尾回主页后框架会把控制权交回 Event_Start 的候选列表重新判定，剩下的
+        //    OpenMenu / OpenActivityEntry / OpenEventCard（max_hit 各 1）又挨个命中，
+        //    白跑一轮导航再进 UnknownFallback 异常链。机神降临没这问题是因为它走三段导航、
+        //    三个候选在第一次就全用尽了。禁掉导航与兜底后，收尾回主页只剩末位 StopTask 命中，
+        //    任务干净结束，不会重入也不会乱点。
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "NodeOverride",
+                "custom_action_param": {
+                    "Event_OpenFromHub": {
+                        "enabled": false
+                    },
+                    "Event_OpenMenu": {
+                        "enabled": false
+                    },
+                    "Event_OpenActivityEntry": {
+                        "enabled": false
+                    },
+                    "Event_OpenEventCard": {
+                        "enabled": false
+                    },
+                    "Event_UnknownFallback": {
+                        "enabled": false
+                    }
+                }
+            }
+        },
+        // 与 Event_Challenge.pre_delay 叠加：进功能段前先把刚关掉浮层/面板的画面放稳
+        "post_delay": 800,
+        "next": [
+            "Event_Challenge"
+        ]
+    },
+    "Event_Challenge": {
+        // 挑战副本：难度由「活动-挑战难度」select 注入 Event_Config_Difficulty.expected[0]，
+        // 次数由「活动-挑战次数」input 注入 custom_action_param.times（0-99999，0 = 不挑战）。
+        // 循环/战斗/结算在 Python EventChallengeRun 里（复用机神降临已实机验证的 _run_battle）。
+        // pre_delay 800：实机 2026-11-12 踩过「刚关掉『恭喜获得』浮层就点挑战 → 点击被过渡动画
+        // 吞掉，Python 侧等 15s 既没助战选择也没编队页」；领奖/关浮层后先把画面放稳再点。
+        "pre_delay": 800,
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "EventChallengeRun",
+                "custom_action_param": {
+                    "times": 1
+                }
+            }
+        },
+        "timeout": 3600000,
+        "next": [
+            "Event_BackHome"
+        ]
+    },
+    "Event_UnknownFallback": {
+        // DirectHit 监督节点的「全都不命中」出口：交公共异常链关 X / 退一级 / 回主页，
+        // 跑完 [JumpBack] 回监督节点重新判定。max_hit 2 是防止主页 ↔ 异常链无限循环的保险丝。
+        "max_hit": 2,
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "Exception_Unknown"
+        ]
+    },
+    "Event_BackHome": {
+        // 前向调用公共回主页链；后面必须跟 StopTask，否则控制权回到监督节点会再跑一轮。
+        "next": [
+            "BackToMainHub_Start",
+            "Event_StopTask"
+        ]
+    },
+    "Event_StopTask": {
+        "action": {
+            "type": "StopTask"
+        }
+    },
+    // ---- 任务设置载体（纯数据，不被任何 next 引用、永不执行）----------------------------
+    "Event_Flag_Challenge": {
+        // select 选「不挑战」= false，选任一难度 = true；Python 读不到按关闭处理（不消耗挑战次数）。
+        "enabled": false,
+        "action": {
+            "type": "DoNothing"
+        }
+    },
+    "Event_Config_Difficulty": {
+        // select 按 PI 规范写 recognition.param.expected[0]：简单 / 普通 / 困难，空串 = 不挑战。
+        // ⚠️ 不能塞进 custom_action_param：那个对象已被「活动-挑战次数」写 times，
+        //    override_pipeline 对它是整体替换，select 写进去会把 times 顶成 None（机神降临 2026-10-23 实测）。
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "expected": [
+                    ""
+                ]
+            }
+        },
         "action": {
             "type": "DoNothing"
         }

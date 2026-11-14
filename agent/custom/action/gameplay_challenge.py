@@ -11,7 +11,7 @@ from utils import logger
 from utils.interrupt import is_stopping
 from utils.params import parse_params
 
-MIN_TIMES = 1
+MIN_TIMES = 0
 MAX_TIMES = 99999
 
 # 连续「没有新战斗开始」的容忍次数。
@@ -94,7 +94,7 @@ _record = _BattleRecord()
 
 
 def _parse_times(raw: object) -> int | None:
-    """把「挑战次数」解析为 1-99999 的整数；非数字、越界或缺失时返回 None。"""
+    """把「挑战次数」解析为 0-99999 的整数；非数字、越界或缺失时返回 None（0 = 不挑战）。"""
     if isinstance(raw, bool):
         return None
     times: int
@@ -190,6 +190,10 @@ class GameplayChallengeLoop(CustomAction):
                 raw_times,
             )
             return CustomAction.RunResult(success=False)
+
+        if times == 0:
+            logger.info("玩法挑战：任务设置「挑战次数」为 0，本次不做任何挑战。")
+            return CustomAction.RunResult(success=True)
 
         _record.planned = times
         _record.entered = 0

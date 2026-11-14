@@ -2,10 +2,14 @@
     "LaunchGame_Start": {
         // 入口（用户需求）：**先判主页，不在主页就冷重启**。
         //   ① 在主页（OCR「惑星之间」或「每日任务」图标）→ 直接 Done：不杀进程、不 StartApp；
-        //   ② 其它任何状态（登录页 / 更新弹窗 / 游戏内子页面 / 战斗中 / 桌面 / 后台）
+        //   ② 登录后、进主页前的「古代之塔 · 挂机收益」弹窗 → 点「领取」→ 回到本节点重判；
+        //   ③ 领取后叠出来的「恭喜获得」遮屏浮层 → 复用公共 Exception_RewardClose 点空白关掉 → 回到本节点重判；
+        //   ④ 其它任何状态（登录页 / 更新弹窗 / 游戏内子页面 / 战斗中 / 桌面 / 后台）
         //      → LaunchGame_ColdRestart：StopApp → 等 5s → StartApp。
-        // 启动之后的分流（更新弹窗、点击登录游戏、回到主页）由 LaunchGame_Launch 的 next 接手，
-        // 所以这里只留两个候选：一个条件命中 + 一个无条件兜底，链是确定的。
+        // ② 是「条件命中 + plain next 回本节点」，③ 是「条件命中 + [JumpBack]」：
+        // 没弹窗时两者都不打断正常分流；且必须排在 ColdRestart 之前——
+        // 以前弹窗既认不出主页也认不出登录页，会直接杀进程重启，收益永远领不到。
+        // 启动之后的分流（更新弹窗、点击登录游戏、回到主页）由 LaunchGame_Launch 的 next 接手。
         //
         // ⚠️ 语义变化：旧版会复用「已在游戏内」的运行实例（InGame → BackToMainHub_Start），
         //    新版**不再复用**——只要不在主页就杀进程。也就是说在子页面 / 战斗里调用「启动游戏」
@@ -16,6 +20,8 @@
         "timeout": 25000,
         "next": [
             "LaunchGame_AtMainHub",
+            "LaunchGame_AncientTowerReward",
+            "[JumpBack]Exception_RewardClose",
             "LaunchGame_ColdRestart"
         ]
     },
@@ -98,6 +104,68 @@
             "type": "DoNothing"
         },
         "timeout": 4000
+    },
+    // ---- 登录后的「古代之塔 · 挂机收益」弹窗 -----------------------------------------
+    // 实机 2026-11-12（127.0.0.1:16512，720x1280）：登录完成后、进主页前会弹这一层；
+    // 点「领取」先回主页并飘「获得」字样，约 1.8s 后再叠一层全屏「恭喜获得」遮屏。
+    // 两层都不处理就会被判成「不在主页」→ ColdRestart 杀进程，收益永远领不到。
+    "LaunchGame_AncientTowerReward": {
+        // 门控用「挂机收益」大字（实测 OCR box (222,204,275,74) score 1.000）：
+        // 主页 / 登录页 / 更新弹窗 / 「恭喜获得」浮层都没有这行字。
+        // ROI 只框标题带，避开下方奖励格子与按钮带的「领取」，也避开上方「古代之塔」小标题
+        // （那几个字在塔页/主页功能列也出现，不适合当门控）。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    180,
+                    180,
+                    360,
+                    120
+                ],
+                "expected": [
+                    "挂机收益"
+                ]
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "timeout": 3000,
+        "next": [
+            "LaunchGame_AncientTowerClaim"
+        ]
+    },
+    "LaunchGame_AncientTowerClaim": {
+        // 「领取」按钮（实测 OCR box (325,1122,69,44) score 1.000）：点识别框中心，不写死坐标。
+        // ROI 精确框住按钮文字，避开上方「已在撼地之塔90层自动继续挂机」(y≈1053) 与下方
+        // 「点击空白区域关闭」(y≈1213)；放宽会把相邻文字读进来，OCR 容易拆字。
+        // post_delay 2500：实测点完约 1.8s 才弹「恭喜获得」遮屏，留 0.7s 余量；之后交给
+        // LaunchGame_Start 的 Exception_RewardClose 候选关浮层、再判主页（下一屏仍是识别驱动）。
+        "max_hit": 2,
+        "recognition": {
+            "type": "OCR",
+            "param": {
+                "roi": [
+                    220,
+                    1090,
+                    280,
+                    110
+                ],
+                "expected": [
+                    "领取"
+                ]
+            }
+        },
+        "action": {
+            "type": "Click"
+        },
+        "post_delay": 2500,
+        "timeout": 4000,
+        "next": [
+            "LaunchGame_Start"
+        ]
     },
     "LaunchGame_Login": {
         "max_hit": 6,
@@ -237,6 +305,8 @@
         // 冷启动（异常重启路径）→ 登录 → 主页全链实测约 46s，慢网络下会超过 60s；
         // 60s 一到期就走 on_error → UpdateError（那是热更新弹窗专用），认不到就判失败、
         // 游戏被丢在登录页。放宽到 120s 留足冷启动余量。
+        // 已登录态冷启动会跳过登录页，直接弹「古代之塔 · 挂机收益」；这个候选不能少，
+        // 否则 120s 里既认不到主页也认不到登录页，会白等到超时走 UpdateError。
         "action": {
             "type": "StartApp",
             "param": {
@@ -248,7 +318,8 @@
         "next": [
             "LaunchGame_AtMainHub",
             "[JumpBack]LaunchGame_LoginUpdatePopup",
-            "[JumpBack]LaunchGame_Login"
+            "[JumpBack]LaunchGame_Login",
+            "LaunchGame_AncientTowerReward"
         ],
         // 超时异常流程：启动后长时间既不是主界面也不是登录界面，多半是热更新异常弹窗。
         "on_error": [

@@ -14,6 +14,7 @@ ACTION_MODULES = (
     "stamina_refill",
     "weekly_dispatch",
     "daily",
+    "event",
 )
 
 

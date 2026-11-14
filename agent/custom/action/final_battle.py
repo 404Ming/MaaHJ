@@ -109,6 +109,7 @@ from .machine_god_descent import (
     _wait_for,
     _wait_support_or_formation,
     handle_away_full,
+    set_log_tag,
 )
 
 # ---- 任务设置 --------------------------------------------------------------------
@@ -1136,6 +1137,7 @@ class FinalBattleRun(CustomAction):
     """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        set_log_tag("终末之战")
         try:
             params = parse_params(argv.custom_action_param)
         except ValueError as error:

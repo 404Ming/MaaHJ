@@ -20,6 +20,15 @@ from utils import logger
 from utils.interrupt import is_stopping
 from utils.params import parse_params
 
+from .fastframe import (
+    click_and_await,
+    click_box,
+    frame_index,
+    index_on,
+    pick_contains,
+    pick_exact,
+    screencap,
+)
 from .gameplay_challenge import (
     PickSupport,
     _box_center_x,
@@ -28,6 +37,19 @@ from .gameplay_challenge import (
     _parse_times,
     _wait_for_battle_presence,
 )
+from .refill import refill
+
+# 日志前缀（活动任务复用本模块的战斗/探索动作时，不该在日志里显示「机神降临：」）。
+# 这些动作由不同任务调用，MaaFramework 在同一 Agent 进程里串行执行任务，
+# 所以由各任务的入口动作在 run() 开头设置一次即可。
+_TAG = "机神降临"
+
+
+def set_log_tag(tag: str) -> None:
+    """切换本模块日志前缀（"机神降临" / "活动" / "副本挑战"）。"""
+    global _TAG
+    _TAG = tag
+
 
 # 解锁进度锚点（实测 720x1280）：「探索9次开启自动探索」box (465,976,232,26)
 _HINT_ROI = (440, 955, 270, 60)
@@ -81,22 +103,54 @@ _ELEMENT_PAGE_ANCHOR_TEXTS = ("挑战", "开始战斗", "挑战次数")
 _FORMATION_START_TEXT = "开始战斗"
 _WIN_CONTINUE_TEXT = "点击空白处继续"
 _WIN_CONFIRM_TEXT = "确认"
+# 结算页「挑战下一关」：点了直接再开一场（活动简单副本 / 终末之战成年体同款按钮）。
+# 只在调用方显式要求连打时启用（repeat_with_next_stage > 0），机神降临本活动没有这个按钮。
+_NEXT_STAGE_TEXT = "挑战下一关"
+# 点完「挑战下一关」等**离开结算页**的上限（判据是「挑战下一关」按钮消失，不是等战斗画面）。
+# ⚠️ 不能等战斗画面：活动简单副本自动战斗一场只要 1.5~3s，等 2.5s 时这一场都已经打完、
+#    画面又回到结算页了（2026-11-14 用户指出），会被误判成"没进下一场"而重复点击。
+_NEXT_LEAVE_GATE = 6.0
+# 点完「挑战下一关」后，等画面**真的离开结算页**的上限：超时判"没开战"，不重复计场
+_SETTLE_CLEAR_WAIT = 3.0
+# 等补充弹窗标题的时间（弹窗有 ~1s 展开动画）
+_REFILL_WAIT = 3.0
+# 「挑战下一关」重点次数与最小间隔：
+# ⚠️ 补完体力后游戏要 1~3s 才切走结算页，原来 0.12s 连点两次就把次数用光、1 秒内判失败
+#    （2026-11-14 20:54 日志：补满 0.2s 后就报「5.0 内一直没消失」）。现在改成按间隔点、按门限等。
+_NEXT_CLICK_RETRY = 3
+_NEXT_CLICK_INTERVAL = 1.8
+# 按钮连续这么多帧都认不到，才认为真的离开了结算页（防止转场单帧抖动误判）
+_NEXT_MISSING_FRAMES = 2
+# 补充弹窗标题带（体力/精力两处标题都落在这一条）：用于和「挑战下一关」**同一帧**判断，
+# 避免为了看弹窗再截一帧。
+_REFILL_TITLE_ROI = (180, 105, 380, 120)
+_REFILL_TITLE_TEXTS = ("补充体力", "补充精力", "恢复精力")
+# 战斗迟迟不出现的兜底上限：点了「开始战斗」但既没进战斗画面、也没出结算（点空/被吞），
+# 最多等这么久就判这一场没开起来 —— 否则会一路空转到 battle_timeout（活动简单是 300s）。
+_BATTLE_START_GRACE = 30.0
 # ---- 战斗模块接入（与玩法挑战 GameplayChallenge / 副本挑战 DungeonChallenge 同一套语义）----
 # 战斗画面锚点：直接用战斗模块导出的 `_wait_for_battle_presence()`
 # （内部轮询 GameplayChallenge_BattlePresence：左上「战斗剩余时间」/「第N回合」）。
-_BATTLE_PRESENCE_TIMEOUT = 5.0
+# 2s 就够：快速战斗可能进循环时已经结束，长等只会白等（下面会先按帧判一次结算）。
+_BATTLE_PRESENCE_TIMEOUT = 2.0
 # 全局任务配置「战斗设置 · 跳过回合」的开关载体（interface.json 的 global_option 覆写 enabled）。
 _SKIP_TURN_FLAG = "Flag_BattleSkipTurn"
 # 战斗中的回合按钮：**只点「跳过回合」**（与 GameplayChallenge_BattleTurn 同一套语义）。
 # ⚠️ 「回合开始」绝对不能点（点它会自己开一回合、把自动战斗带偏）；
 #    「奥义释放」是开关按钮（点一下就把奥义释放关掉），战斗推进绝不碰。
-_TURN_ROI = (180, 1070, 380, 110)  # 与 DungeonChallenge 的 _BATTLE_TURN_ROI 同口径
 _TURN_TEXT = "跳过回合"
-_TURN_WAIT_TEXTS = ("回合开始",)
 # 窄 ROI 每轮节奏（跳过回合的可点窗口很短，认到就点、点完立刻看下一帧）
-_TURN_POLL = 0.05
-# 结算判据的检查间隔（结算判据要扫整条底部带，比回合轮询贵）
-_BATTLE_RESULT_CHECK = 1.5
+# 10ms 只为让出 GIL；配合 MinicapStream（截图 ~16ms）一轮 ≈ 截图 + 2 个窄 ROI OCR。
+_TURN_POLL = 0.01
+# 结算按钮窄带：实测「确认」(528,1192,57,32)、「挑战下一关」(96,1193,129,32)、
+# 「点击空白处继续」都在 y≈1190 这一行。
+_RESULT_BAND_ROI = (0, 1150, 720, 130)
+# **战斗扫描带**：一条 ROI 同时罩住「跳过回合」(y≈1070~1180) 与结算按钮 (y≈1190)，
+# 一次 OCR 同时判两件事。实测（2026-11-14，MuMu）：720x220 ≈82ms，
+# 而分开 OCR 两次（380x110 + 720x130）≈172ms —— 合并后每帧省 ~90ms。
+_BATTLE_SCAN_ROI = (0, 1060, 720, 220)
+# 兜底扫描周期（帧）：连续认不到就偶尔扫宽一点，避免因为按钮上移整场看不到结算
+_WIDE_SCAN_EVERY = 8
 # 战斗推进的有界上限：一场普通战斗正常几十秒，留足余量但不无限打。
 _BATTLE_TIMEOUT = 120.0
 # ---- 助战选择（元素自律机械点「挑战」、机神挑战点「创建房间」后都会弹，实测）----
@@ -135,7 +189,7 @@ def _flag_enabled(context: Context, node_name: str) -> bool:
     """
     data = context.get_node_data(node_name)
     if not data or "enabled" not in data:
-        logger.warning("机神降临：读不到开关节点 {}（未预定义？），按关闭处理、不点任何东西。", node_name)
+        logger.warning(_TAG + "：读不到开关节点 {}（未预定义？），按关闭处理、不点任何东西。", node_name)
         return False
     return bool(data.get("enabled"))
 
@@ -189,9 +243,9 @@ def _dismiss_machine_god_dialog(context: Context) -> bool:
         return False
     cancel = _find_in(context, _MGD_DIALOG_CANCEL_ROI, _MGD_DIALOG_CANCEL_TEXT)
     if cancel is None:
-        logger.warning("机神降临：看到机神挑战邀请弹窗但认不到「取消」，不点任何东西。")
+        logger.warning(_TAG + "：看到机神挑战邀请弹窗但认不到「取消」，不点任何东西。")
         return False
-    logger.debug("机神降临：遇到机神挑战邀请弹窗，点「取消」不前往。")
+    logger.debug(_TAG + "：遇到机神挑战邀请弹窗，点「取消」不前往。")
     _click_box(context, cancel)
     time.sleep(_CLICK_SETTLE)
     return True
@@ -262,12 +316,12 @@ def _ensure_support(context: Context, formation_roi, formation_text: str) -> boo
         if picker.pick(context):
             return True
     except Exception as error:  # noqa: BLE001  助战链路异常按失败处理，但下面还有一次"是否已在编队页"的复核
-        logger.error("机神降临：助战选择流程异常：{}", error)
+        logger.error(_TAG + "：助战选择流程异常：{}", error)
 
     # 兜底：只要**确实已经站在编队页**，就按当前助战继续 —— 识别抖动不该白扔一次挑战次数。
     # 反过来，还停在助战选择页说明助战没选上，必须返回 False（绝不带着"没选助战"去开打）。
     if _find_in(context, formation_roi, formation_text) is not None:
-        logger.warning("机神降临：助战校验未完成，但已在编队页，按当前助战继续。")
+        logger.warning(_TAG + "：助战校验未完成，但已在编队页，按当前助战继续。")
         return True
     return False
 
@@ -293,65 +347,270 @@ def _wait_support_or_formation(context: Context, formation_roi, formation_text: 
     return None
 
 
-def _run_battle_turns(context: Context, is_over, timeout: float) -> bool:
-    """战斗回合推进（**接入统一战斗模块**，而不是自己乱点按钮）。
+def _run_battle_turns(
+    context: Context,
+    is_over,
+    timeout: float,
+    *,
+    extra_rois: tuple = (),
+    first_index_out: list | None = None,
+    skip_initial_settlement: bool = False,
+) -> bool:
+    """战斗回合推进（**单帧多 ROI 版**，2026-11-14 提速）。
 
     · 先用 `GameplayChallenge_BattlePresence` 确认战斗画面已在场；
-    · 全局任务配置「战斗设置 · 跳过回合」开启（`Flag_BattleSkipTurn`）：
-      窄 ROI 高频轮询「跳过回合」，认到立刻点、点完立刻看下一帧（可点窗口很短）；
-    · 未开启：**不识别按钮、不点任何按钮**，只低频轮询结算 —— 这就是该开关的语义；
-    · 绝不点「回合开始」（会自己开一回合、把自动战斗带偏）与「奥义释放」（是开关，误点会关掉）。
+    · **每轮只截一帧**，在同一帧上 OCR「跳过回合 + 结算窄带(+额外 ROI)」：
+      - 结算判据命中 → 立刻返回，并把这一帧 index 交给调用方（第一下点击不用二次识别）；
+      - 「跳过回合」命中 → 立刻点同一帧识别到的框，点完马上看下一帧；
+    · 全局「战斗设置 · 跳过回合」关闭时**不识别按钮、不点任何按钮**，只等结算；
+    · 绝不点「回合开始」（会自己开一回合）与「奥义释放」（是开关，误点会关掉）。
 
-    `is_over()`：结算判据，由调用方提供（普通挑战只看胜利结算，机神战还要看「作战失败」）。
+    `is_over(index)`：结算判据，由调用方提供（普通挑战只看胜利结算，机神战还要看「作战失败」）。
     返回 True=出现结算；False=超过 `timeout` 仍未结束。
+
+    ⚠️ 旧版每轮要 2~4 次截图（is_over 里每个文案各截一帧 + 回合按钮再截一帧），且结算判据
+       1.5s 才查一次：一次判定 0.5~1.5s。现在一次判定 = 一次截图 + 两个窄 ROI OCR。
     """
+    if skip_initial_settlement:
+        # 刚点完「挑战下一关」：必须**亲眼看到画面离开结算页**才算这一场开了。
+        # 否则（转场时按钮短暂消失 / 点击被吞）会把上一场的结算页再计一场 ——
+        # 实测 2026-11-14：日志报 3/3，体力只掉了 2 场的量。
+        clear_deadline = time.time() + _SETTLE_CLEAR_WAIT
+        cleared = False
+        while time.time() < clear_deadline:
+            img = screencap(context)
+            if img is None:
+                continue
+            index = index_on(context, img, _BATTLE_SCAN_ROI)
+            if not is_over(index):
+                cleared = True
+                break
+            time.sleep(0.05)
+        if not cleared:
+            logger.warning(_TAG + "：点了「挑战下一关」但画面一直停在结算页，按结算收尾（不重复计场）。")
+            return False
+    else:
+        # 快速战斗：首场进循环时可能**已经打完并回到结算页**（活动简单副本一场只要 1.5~3s），
+        # 先按帧判一次结算，命中就把这一帧交给调用方直接点击，不再白等战斗画面。
+        img = screencap(context)
+        if img is not None:
+            index = index_on(context, img, _BATTLE_SCAN_ROI, *extra_rois)
+            if is_over(index):
+                if first_index_out is not None:
+                    first_index_out.clear()
+                    first_index_out.append(index)
+                # 每场都可能命中，属内部细节 → debug，不刷客户端日志（用户要求隐藏）
+                logger.debug(_TAG + "：进入战斗循环时已经是结算页（上一场极快），直接按结算处理。")
+                return True
     if not _wait_for_battle_presence(context, _BATTLE_PRESENCE_TIMEOUT):
-        logger.warning(
-            "机神降临：{} 秒内没看到战斗画面锚点（战斗剩余时间/第N回合），仍按已进入战斗继续推进。",
+        logger.debug(
+            _TAG + "：{} 秒内没看到战斗画面锚点（战斗剩余时间/第N回合），按已进入战斗继续推进。",
             _BATTLE_PRESENCE_TIMEOUT,
         )
 
     skip_turn = _flag_enabled(context, _SKIP_TURN_FLAG)
     logger.debug(
-        "机神降临：战斗推进开始，全局「跳过回合」{}。",
+        _TAG + "：战斗推进开始，全局「跳过回合」{}。",
         "已开启 → 只点「跳过回合」" if skip_turn else "未开启 → 不点任何按钮，只等结算",
     )
 
+    # 一条扫描带同时判「跳过回合 / 结算按钮」，配合 MinicapStream（截图 ~11ms）
+    # 一轮 ≈ 11 + 82 ≈ 93ms；命中「跳过回合」的那一轮再加一次点击往返（~51ms）。
+    # extra_rois（机神战的「作战失败」标题在屏幕上部）只在每 8 帧的宽扫里带上，
+    # 避免每帧多一次 ~70ms 的 OCR；失败判定最坏晚 8 帧（≈0.75s），不影响胜负结果。
+    base_rois = (_BATTLE_SCAN_ROI,)
+    wide_rois = (_BATTLE_SCAN_ROI, *extra_rois, _MGD_BOTTOM_ROI, _REFILL_TITLE_ROI)
+    started = time.perf_counter()
     deadline = time.time() + timeout
-    next_check = 0.0
-    roi = _TURN_ROI
-    misses = 0
+    frame = 0
+    clicks = 0
+    battle_seen = False
+    no_progress_since = time.time()
     while time.time() < deadline:
-        now = time.time()
-        if now >= next_check:
-            next_check = now + _BATTLE_RESULT_CHECK
-            if is_over():
-                return True
+        if is_stopping(context):
+            return False
+        img = screencap(context)
+        if img is None:
+            continue
+        wide = bool(frame) and frame % _WIDE_SCAN_EVERY == 0
+        index = index_on(context, img, *(wide_rois if wide else base_rois))
+        frame += 1
+
+        # 兜底：战斗画面一直没出现也没结算 → 这一场根本没开起来（点空/被吞/页面没切走），
+        # 早点报错收手，别白等满 battle_timeout（活动简单是 300s，用户会以为卡死）。
+        if wide and not battle_seen:
+            battle_seen = _wait_for_battle_presence(context, 0.3)
+            if battle_seen:
+                no_progress_since = time.time()
+        if not battle_seen and time.time() - no_progress_since > _BATTLE_START_GRACE:
+            logger.warning(
+                _TAG + "：{} 秒内既没出现战斗画面、也没出现结算，判定这一场没开起来（点空/页面没切走）。",
+                int(_BATTLE_START_GRACE),
+            )
+            return False
+
+        # 兜底：战斗/结算页被「补充体力 / 补充精力」弹窗盖住时（体力刚耗尽），
+        # 这里不认、也不会有人来补 —— 旧版就是在这静默空转到 battle_timeout（用户看到"卡在补充体力页"）。
+        # 弹窗只会在宽扫帧里判（+~70ms / 8 帧一次），命中就补满、接着打。
+        if wide and pick_contains(index, *_REFILL_TITLE_TEXTS) is not None:
+            logger.info(_TAG + "：战斗界面被「补充体力 / 补充精力」挡住，先补满再继续。")
+            if not refill(context, wait=2.0):
+                logger.warning(_TAG + "：补体力失败（药不够或到上限），放弃本场。")
+                return False
+            continue
+
+        if is_over(index):
+            if first_index_out is not None:
+                first_index_out.clear()
+                first_index_out.append(index)
+            # 实测口径：这一行之后调用方**立刻**用同一帧点击，中间没有任何 sleep。
+            total_ms = (time.perf_counter() - started) * 1000
+            # 每场一条性能统计：属内部细节 → debug，不再刷客户端日志（用户要求隐藏）
+            logger.debug(
+                _TAG + "：战斗结束，识别 {} 帧（点「跳过回合」{} 次），平均 {:.0f}ms/帧；"
+                "扣除点击往返后 ≈{:.0f}ms/帧（截图 + 同一帧 OCR）。",
+                frame,
+                clicks,
+                total_ms / max(frame, 1),
+                (total_ms - clicks * 51.0) / max(frame, 1),
+            )
+            return True
 
         if not skip_turn:
-            time.sleep(_STATE_POLL)
-            continue
-
-        texts = _ocr(context, roi)
-        turn = next((box for text, box in texts if text.strip() == _TURN_TEXT), None)
-        if turn is not None:
-            misses = 0
-            _click_box(context, turn)
-            continue
-        if any(text.strip() in _TURN_WAIT_TEXTS for text, _box in texts):
-            misses = 0
             time.sleep(_TURN_POLL)
             continue
 
-        # 窄 ROI 连续认不到：可能是版式偏差/过场动画，退到整条底部带再试（慢一点但不漏）
-        misses += 1
-        if misses % 6 == 0 and roi != _MGD_BOTTOM_ROI:
-            roi = _MGD_BOTTOM_ROI
+        turn = pick_exact(index, _TURN_TEXT)
+        if turn is not None:
+            # 识别到就点：点击下发在识别完成后立即发生（无固定等待）
+            click_box(context, turn)
+            clicks += 1
+            continue
         time.sleep(_TURN_POLL)
     return False
 
 
-def _run_battle(context: Context, *, post_roi, post_texts, challenge_roi=_MGD_BOTTOM_ROI) -> bool:
+def _wait_result_frame(context: Context, timeout: float, continue_texts: tuple[str, ...]):
+    """按帧等结算链的下一个可点文案（继续/跳过/确认/挑战下一关），返回出现那一刻的 index。"""
+    rois = (_RESULT_BAND_ROI, _MGD_BOTTOM_ROI)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if is_stopping(context):
+            return None
+        img = screencap(context)
+        if img is None:
+            continue
+        index = index_on(context, img, *rois)
+        if pick_exact(index, *continue_texts, _WIN_CONFIRM_TEXT, _NEXT_STAGE_TEXT) is not None:
+            return index
+    return None
+
+
+def _reach_next_stage(context: Context, continue_texts: tuple[str, ...], index: dict | None = None):
+    """在胜利结算链里找到「挑战下一关」的识别框（找不到返回 None）。
+
+    活动简单副本的结算先叠「战斗胜利 / 点击空白处继续」过场，再露出「挑战下一关 / 确认」屏
+    （2026-11-12 逐帧取证）。`index` 是战斗结束时那一帧的识别结果（调用方直接传入，省一次截图）；
+    之后每点一层过场都用 `click_and_await` 按帧推进，不留固定 sleep —— 按钮一出现就能点。
+    """
+    rois = (_RESULT_BAND_ROI, _MGD_BOTTOM_ROI)
+    for _screen in range(3):
+        if index is None:
+            index = frame_index(context, *rois)
+        box = pick_exact(index, _NEXT_STAGE_TEXT)
+        if box is not None:
+            return box
+        cont = pick_exact(index, *continue_texts)
+        if cont is None:
+            # 过场屏可能还没渲染完：有界等一次按钮，等不到就按结算收尾
+            return _wait_for(context, _MGD_BOTTOM_ROI, _NEXT_STAGE_TEXT, 1.5)
+        logger.debug(_TAG + "：结算过场点「{}」，继续找「{}」。", cont, _NEXT_STAGE_TEXT)
+        index = click_and_await(context, cont, (*continue_texts, _NEXT_STAGE_TEXT), rois)
+    if index is None:
+        index = frame_index(context, *rois)
+    return pick_exact(index, _NEXT_STAGE_TEXT)
+
+
+def _ensure_next_battle(context: Context) -> bool:
+    """点完「挑战下一关」后确认**已经离开结算页**（吞点击就重点，体力不足先补再点）。
+
+    判据是「挑战下一关」按钮消失，**不是**等战斗画面出现 —— 活动简单副本自动战斗一场只要
+    1.5~3s，点完等 2.5s 战斗画面时这一场往往已经打完、画面又回到结算页，会被误判成
+    "没进下一场"而重复点击（2026-11-14 用户指出）。现在：
+
+      · 每帧同一帧 OCR「结算按钮 + 补充弹窗标题」：
+      · 按钮没了 → 已离开结算页（进战斗 / 加载 / 甚至已打完）→ 立刻交回战斗循环，
+        由它按帧等结算并计场次；
+      · 弹窗在 → 补满（复位 max_hit、跑公共状态机、关弹窗）后再点；
+      · 按钮还在 → 上次点击被吞，最多重点 `_NEXT_CLICK_RETRY` 次；
+      · `_NEXT_LEAVE_GATE` 秒内按钮一直不消失 → 判定没出去（体力/次数不足或掉线），返回 False。
+    """
+    deadline = time.time() + _NEXT_LEAVE_GATE
+    clicks = 0
+    last_click = 0.0
+    missing = 0
+    while time.time() < deadline:
+        if is_stopping(context):
+            return False
+        img = screencap(context)
+        if img is None:
+            continue
+        index = index_on(context, img, _MGD_BOTTOM_ROI, _REFILL_TITLE_ROI)
+
+        # ⚠️ 必须先判补充弹窗：弹窗会盖住结算页底部，「挑战下一关」在截图里可能认不到，
+        #    先判按钮就会把"被弹窗挡住"误当成"已经开战"，随后战斗循环空转到超时
+        #    （2026-11-14 用户实测：卡在补充体力页面不动）。
+        if pick_contains(index, *_REFILL_TITLE_TEXTS) is not None:
+            if not refill(context, wait=1.0):
+                logger.warning(_TAG + "：体力/精力补充失败（药不够或到上限），连打结束。")
+                return False
+            logger.info(_TAG + "：体力已补满，重新点「{}」继续连打。", _NEXT_STAGE_TEXT)
+            # 补体力本身要跑十几秒状态机，重新给足一个窗口，并把点击节奏清零
+            deadline = time.time() + _NEXT_LEAVE_GATE
+            clicks = 0
+            last_click = 0.0
+            missing = 0
+            continue
+
+        button = pick_exact(index, _NEXT_STAGE_TEXT)
+        if button is None:
+            # 连续多帧都认不到按钮才算"离开结算页"：转场时单帧抖动不算，
+            # 否则会把还没切走的结算页当成已开战（随后重复计场 / 空转）。
+            missing += 1
+            if missing >= _NEXT_MISSING_FRAMES:
+                return True
+            time.sleep(0.12)
+            continue
+        missing = 0
+
+        now = time.time()
+        if clicks < _NEXT_CLICK_RETRY and now - last_click >= _NEXT_CLICK_INTERVAL:
+            clicks += 1
+            last_click = now
+            logger.debug(_TAG + "：第 {} 次点「{}」把下一场开起来。", clicks, _NEXT_STAGE_TEXT)
+            click_box(context, button)
+        time.sleep(0.12)
+    logger.warning(
+        _TAG + "：{} 秒内点了 {} 次「{}」仍没离开结算页（体力/次数不足或掉线到登录页），按结算收尾。",
+        int(_NEXT_LEAVE_GATE),
+        clicks,
+        _NEXT_STAGE_TEXT,
+    )
+    return False
+
+
+def _run_battle(
+    context: Context,
+    *,
+    post_roi,
+    post_texts,
+    challenge_roi=_MGD_BOTTOM_ROI,
+    battle_timeout: float = _BATTLE_TIMEOUT,
+    continue_texts: tuple[str, ...] = (_WIN_CONTINUE_TEXT, "点击空白区域跳过"),
+    strict_post: bool = True,
+    repeat_with_next_stage: int = 0,
+    battles_done: list[int] | None = None,
+) -> bool:
     """打完一整场「挑战」：挑战 →（助战选择）→ 开始战斗 → 战斗 → 继续 → 确认 →
     （好友申请取消）→ 回到原页面；成功判据是 post_texts 中**任一**文案在 post_roi 出现。
 
@@ -368,7 +627,17 @@ def _run_battle(context: Context, *, post_roi, post_texts, challenge_roi=_MGD_BO
       7. 后置观测：post_texts 任一在 post_roi 出现才算成功（认不到返回 False，不盲点）。
 
     每步有界等待；任何一步认不到都返回 False，由上层按"无进展"处理。
+
+    快速连打（2026-11-14，用户要求「活动简单副本像终末之战成年体一样连打」）：
+      · `repeat_with_next_stage=N`：首场胜利后，结算页出现「挑战下一关」就直接点它再开一场，
+        最多再连打 N 场，不必回活动页 / 地图重新寻路（终末之战成年体同款按钮）；
+      · `battles_done`：出参（list），写回本次调用真正打完的场数，调用方据此累加进度；
+      · 只有显式传 N>0 才会点「挑战下一关」，机神降临（本活动没有该按钮）保持原行为。
     """
+    if battles_done is not None:
+        battles_done.clear()
+        battles_done.append(0)
+
     challenge = _find_in(context, challenge_roi, _CHALLENGE_TEXT)
     if challenge is None:
         return False
@@ -376,53 +645,129 @@ def _run_battle(context: Context, *, post_roi, post_texts, challenge_roi=_MGD_BO
     time.sleep(_CLICK_SETTLE)
 
     # 助战选择（元素自律机械实测必弹；探索挑战不弹）→ **必须**按全局配置选，且校验进了编队页
-    state = _wait_support_or_formation(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT, 15)
+    state = _wait_support_or_formation(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT, 8)
     if state is None:
-        logger.warning("机神降临：点「挑战」后既没进助战选择页，也没等到编队页「开始战斗」。")
+        # 体力/精力不足时点「挑战」同样不会开战、只弹补充弹窗：补满后重新点一次「挑战」，
+        # 否则整批连打会直接以「没进展」收场（快速连打期间主流程的 Exception_Stamina 不会跑）。
+        if refill(context, wait=_REFILL_WAIT):
+            challenge = _find_in(context, challenge_roi, _CHALLENGE_TEXT) or _wait_for(
+                context, challenge_roi, _CHALLENGE_TEXT, 2.0
+            )
+            if challenge is not None:
+                logger.info(_TAG + "：体力已补满，重新点「挑战」开战。")
+                _click_box(context, challenge)
+                time.sleep(_CLICK_SETTLE)
+                state = _wait_support_or_formation(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT, 15)
+        else:
+            # 没有补充弹窗：可能只是慢加载，再给一段等待
+            state = _wait_support_or_formation(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT, 10)
+    if state is None:
+        logger.warning(_TAG + "：点「挑战」后既没进助战选择页，也没等到编队页「开始战斗」。")
         return False
     if state == "support":
         if not _ensure_support(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT):
-            logger.warning("机神降临：助战选择没有完成（未进入编队页），放弃本场挑战。")
+            logger.warning(_TAG + "：助战选择没有完成（未进入编队页），放弃本场挑战。")
             return False
         time.sleep(_CLICK_SETTLE)
 
     start = _wait_for(context, _MGD_BOTTOM_ROI, _FORMATION_START_TEXT, 15)
     if start is None:
-        logger.warning("机神降临：没等到编队页「开始战斗」，放弃处理本场挑战。")
+        logger.warning(_TAG + "：没等到编队页「开始战斗」，放弃处理本场挑战。")
         return False
     _click_box(context, start)
     time.sleep(_CLICK_SETTLE)
 
-    def _battle_over() -> bool:
+    def _battle_over(index=None) -> bool:
+        # 结算「继续」文案随副本而变（机神「点击空白处继续」/ 活动困难 Boss「点击空白区域跳过」）；
+        # 只认「确认」会漏掉后者 → 战斗推进白白等到超时（2026-11-12 实机踩过）。
+        # index：战斗循环那一帧的识别结果（正常情况下直接复用，不再截图）。
+        if index is None:
+            index = frame_index(context, _RESULT_BAND_ROI, _MGD_BOTTOM_ROI)
         return (
-            _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT) is not None
-            or _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT) is not None
+            pick_exact(index, _WIN_CONFIRM_TEXT) is not None
+            or pick_exact(index, *continue_texts) is not None
         )
 
-    # 战斗模块推进：只点「跳过回合」，开关关闭时完全不点
-    if not _run_battle_turns(context, _battle_over, _BATTLE_TIMEOUT):
-        logger.warning("机神降临：战斗推进超过 {} 秒仍未结束，放弃处理本场挑战。", _BATTLE_TIMEOUT)
-        return False
+    first_index: list = []
+    done = 0
+    while True:
+        # 战斗模块推进：只点「跳过回合」，开关关闭时完全不点
+        if not _run_battle_turns(
+            context,
+            _battle_over,
+            battle_timeout,
+            first_index_out=first_index,
+            # 第 2 场起都是「挑战下一关」点出来的：必须先看到画面离开结算页才计这一场，
+            # 否则上一场的结算页会被重复计场（2026-11-14 实测 3/3 只掉了 2 场体力）。
+            skip_initial_settlement=done > 0,
+        ):
+            logger.warning(_TAG + "：战斗推进超过 {} 秒仍未结束，放弃处理本场挑战。", battle_timeout)
+            if done == 0:
+                return False
+            break
+        done += 1
+        if battles_done is not None:
+            battles_done[0] = done
+        if done > repeat_with_next_stage:
+            break
 
-    box = _wait_for(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT, 10)
-    if box is not None:
-        _click_box(context, box)
-        time.sleep(_CLICK_SETTLE)
-    box = _wait_for(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT, 10)
-    if box is not None:
-        _click_box(context, box)
-        time.sleep(_CLICK_SETTLE)
+        # 快速连打：结算链里点过「挑战下一关」→ 直接开下一场（与终末之战成年体同款）
+        next_box = _reach_next_stage(context, continue_texts, first_index[0] if first_index else None)
+        if next_box is None:
+            logger.debug(_TAG + "：结算页没有「{}」，按结算收尾（已打 {} 场）。", _NEXT_STAGE_TEXT, done)
+            break
+        logger.debug(_TAG + "：结算页点「{}」直接连打第 {} 场。", _NEXT_STAGE_TEXT, done + 1)
+        _click_box(context, next_box)
+        if _ensure_next_battle(context):
+            continue
+        logger.warning(
+            _TAG + "：连点「{}」{} 次仍没进下一场，也没出现「补充体力 / 补充精力」"
+            "（体力/次数不足或游戏掉线到登录页），按结算收尾。",
+            _NEXT_STAGE_TEXT,
+            _NEXT_CLICK_RETRY,
+        )
+        break
+
+    # 结算：优先复用战斗结束时那一帧（第一下点击不再截图）；之后每点一层都按帧推进，
+    # 不用固定 sleep —— 点完「继续」按钮一消失就进入下一屏。
+    # 「继续/跳过」文案随副本而变（机神「点击空白处继续」/ 活动困难 Boss「点击空白区域跳过」），
+    # 而且活动困难 Boss 的胜利结算有**多层**跳过屏（实测不止一层），所以最多 5 层。
+    index = first_index[0] if first_index else None
+    for _screen in range(5):
+        if index is None:
+            index = _wait_result_frame(context, 8.0, continue_texts)
+            if index is None:
+                break
+        box = pick_exact(index, *continue_texts)
+        if box is None:
+            break
+        index = click_and_await(
+            context, box, (*continue_texts, _WIN_CONFIRM_TEXT), (_RESULT_BAND_ROI, _MGD_BOTTOM_ROI)
+        )
+    confirm = pick_exact(index, _WIN_CONFIRM_TEXT) if index else None
+    if confirm is None:
+        index = _wait_result_frame(context, 10.0, continue_texts)
+        confirm = pick_exact(index, _WIN_CONFIRM_TEXT) if index else None
+    if confirm is None:
+        confirm = _wait_for(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT, 3)
+    if confirm is not None:
+        click_and_await(context, confirm, (_WIN_CONFIRM_TEXT,), (_RESULT_BAND_ROI,))
 
     # 好友申请弹窗（用了陌生助战会弹）→ 取消；绝不给别的玩家发申请
-    if _wait_for(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT, 3) is not None:
-        logger.debug("机神降临：结算后弹出好友申请框，点「取消」。")
+    # ⚠️ 等待 6s：活动困难 Boss 的结算三层过场走完后这个框才弹（实测比机神晚 2~4s），
+    #    只等 3s 会漏掉 → 后面的"回预期页面"观测被弹窗挡住直接判失败。
+    if _wait_for(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT, 6) is not None:
+        logger.debug(_TAG + "：结算后弹出好友申请框，点「取消」。")
         _click_box(context, _find_in(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT))
         time.sleep(_CLICK_SETTLE)
 
     wanted = (post_texts,) if isinstance(post_texts, str) else tuple(post_texts)
-    if not _wait_any(context, post_roi, wanted, 10):
-        logger.warning("机神降临：挑战打完后没回到预期页面（认不到 {}）。", " / ".join(wanted))
-        return False
+    if not _wait_any(context, post_roi, wanted, 15):
+        # 走到这里说明战斗已经打完、结算也点了（前面每步失败都会提前 return），
+        # 只是落点判据没认到（例如被晚弹的好友申请挡住）。strict_post=False 时交给调用方自行恢复页面。
+        logger.warning(_TAG + "：挑战打完后没回到预期页面（认不到 {}）。", " / ".join(wanted))
+        if strict_post:
+            return False
     return True
 
 
@@ -456,26 +801,27 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
         """
         if _find_in(context, _MGD_BOTTOM_ROI, _CHALLENGE_TEXT) is None:
             return False
-        logger.debug("机神降临：点「探索」后遇到了挑战，开始处理这一场。")
+        logger.debug(_TAG + "：点「探索」后遇到了挑战，开始处理这一场。")
         return _run_battle(context, post_roi=_EXPLORE_ROI, post_texts=(_EXPLORE_TEXT,))
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        set_log_tag("机神降临")
         if not _flag_enabled(context, _AUTO_EXPLORE_FLAG):
-            logger.info("机神降临：任务设置「自动探索领取」未开启，跳过自动探索解锁。")
+            logger.info(_TAG + "：任务设置「自动探索领取」未开启，跳过自动探索解锁。")
             return CustomAction.RunResult(success=True)
 
         remaining = _read_unlock_remaining(context)
         if remaining is None:
-            logger.debug("机神降临：没有「探索N次开启自动探索」提示 → 自动探索已解锁，本段无需处理。")
+            logger.debug(_TAG + "：没有「探索N次开启自动探索」提示 → 自动探索已解锁，本段无需处理。")
             return CustomAction.RunResult(success=True)
 
-        logger.debug("机神降临：自动探索仍锁着（还需探索 {} 次），开始点「探索」。", remaining)
+        logger.debug(_TAG + "：自动探索仍锁着（还需探索 {} 次），开始点「探索」。", remaining)
         clicked = 0
         no_progress = 0
         while clicked < _MAX_CLICKS:
             button = _find_explore_button(context)
             if button is None:
-                logger.error("机神降临：认不到「探索」按钮，停止解锁（已点 {} 次）。", clicked)
+                logger.error(_TAG + "：认不到「探索」按钮，停止解锁（已点 {} 次）。", clicked)
                 return CustomAction.RunResult(success=False)
             context.tasker.controller.post_click(_box_center_x(button), _box_center_y(button)).wait()
             clicked += 1
@@ -483,7 +829,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
 
             now = _read_unlock_remaining(context)
             if now is None:
-                logger.debug("机神降临：自动探索已解锁（共点 {} 次「探索」）。", clicked)
+                logger.debug(_TAG + "：自动探索已解锁（共点 {} 次「探索」）。", clicked)
                 return CustomAction.RunResult(success=True)
             if now >= remaining:
                 # 读数没降 —— 很可能是这次点「探索」触发了弹窗/挑战（实测两种：机神邀请弹窗、挑战）。
@@ -491,7 +837,7 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
                 if _dismiss_machine_god_dialog(context):
                     after = _read_unlock_remaining(context)
                     if after is None:
-                        logger.debug("机神降临：自动探索已解锁（共点 {} 次「探索」，途中关掉机神邀请）。", clicked)
+                        logger.debug(_TAG + "：自动探索已解锁（共点 {} 次「探索」，途中关掉机神邀请）。", clicked)
                         return CustomAction.RunResult(success=True)
                     no_progress = 0
                     remaining = after
@@ -499,21 +845,21 @@ class MachineGodDescentUnlockAutoExplore(CustomAction):
                 if self._clear_challenge(context):
                     after = _read_unlock_remaining(context)
                     if after is None:
-                        logger.debug("机神降临：自动探索已解锁（共点 {} 次「探索」，途中清掉挑战）。", clicked)
+                        logger.debug(_TAG + "：自动探索已解锁（共点 {} 次「探索」，途中清掉挑战）。", clicked)
                         return CustomAction.RunResult(success=True)
                     no_progress = 0
                     remaining = after
                     continue
                 no_progress += 1
-                logger.warning("机神降临：第 {} 次点「探索」后进度没变（仍显示 {} 次），疑似点击无效。", clicked, now)
+                logger.warning(_TAG + "：第 {} 次点「探索」后进度没变（仍显示 {} 次），疑似点击无效。", clicked, now)
                 if no_progress >= _MAX_NO_PROGRESS:
-                    logger.warning("机神降临：连续 {} 次没有任何进展，停止解锁以免白耗道具。", no_progress)
+                    logger.warning(_TAG + "：连续 {} 次没有任何进展，停止解锁以免白耗道具。", no_progress)
                     return CustomAction.RunResult(success=True)
             else:
                 no_progress = 0
                 remaining = now
 
-        logger.warning("机神降临：点满上限 {} 次仍未解锁（还需 {} 次），交给上层处理。", _MAX_CLICKS, remaining)
+        logger.warning(_TAG + "：点满上限 {} 次仍未解锁（还需 {} 次），交给上层处理。", _MAX_CLICKS, remaining)
         return CustomAction.RunResult(success=True)
 
 
@@ -540,67 +886,68 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
     """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        set_log_tag("机神降临")
         if not _flag_enabled(context, _AUTO_EXPLORE_FLAG):
-            logger.info("机神降临：任务设置「自动探索领取」未开启，跳过自动探索（不消耗侦察工具）。")
+            logger.info(_TAG + "：任务设置「自动探索领取」未开启，跳过自动探索（不消耗侦察工具）。")
             return CustomAction.RunResult(success=True)
 
         # ---- 0. 机神挑战邀请弹窗在场就先关掉（挡住下面的控件识别）----
         if _dismiss_machine_god_dialog(context):
-            logger.debug("机神降临：进页时有机神挑战邀请弹窗，已点「取消」关闭。")
+            logger.debug(_TAG + "：进页时有机神挑战邀请弹窗，已点「取消」关闭。")
 
         # ---- 1. 已在自动探索中 → 先停止 ----
         if _find_in(context, _STOP_RUNNING_ROI, _STOP_RUNNING_TEXT) is not None:
-            logger.debug("机神降临：已在自动探索中，按流程先停止。")
+            logger.debug(_TAG + "：已在自动探索中，按流程先停止。")
             _click_box(context, _find_in(context, _STOP_RUNNING_ROI, _STOP_RUNNING_TEXT))
             time.sleep(_CLICK_SETTLE)
             confirm = _wait_for(context, _STOP_PANEL_CONFIRM_ROI, _STOP_PANEL_CONFIRM_TEXT)
             if confirm is None:
-                logger.error("机神降临：点「停止自动探索」后没等到「停止探索」确认键，停止本次流程。")
+                logger.error(_TAG + "：点「停止自动探索」后没等到「停止探索」确认键，停止本次流程。")
                 return CustomAction.RunResult(success=False)
             _click_box(context, confirm)
             time.sleep(_CLICK_SETTLE)
             if _wait_for(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT) is None:
-                logger.error("机神降临：确认停止后没看到「自动探索」按钮，无法确认已停止。")
+                logger.error(_TAG + "：确认停止后没看到「自动探索」按钮，无法确认已停止。")
                 return CustomAction.RunResult(success=False)
-            logger.debug("机神降临：已停止自动探索（奖励按面板说明保留）。")
+            logger.debug(_TAG + "：已停止自动探索（奖励按面板说明保留）。")
         else:
-            logger.debug("机神降临：当前不在自动探索中，直接进入设置。")
+            logger.debug(_TAG + "：当前不在自动探索中，直接进入设置。")
 
         # ---- 2. 打开自动探索设置面板 ----
         button = _find_in(context, _AUTO_BUTTON_ROI, _AUTO_BUTTON_TEXT)
         if button is None:
-            logger.error("机神降临：认不到「自动探索」按钮，停止本次流程。")
+            logger.error(_TAG + "：认不到「自动探索」按钮，停止本次流程。")
             return CustomAction.RunResult(success=False)
         _click_box(context, button)
         confirm = _wait_for(context, _PANEL_CONFIRM_ROI, _PANEL_CONFIRM_TEXT)
         if confirm is None:
-            logger.error("机神降临：点「自动探索」后没等到「开启探索」面板，停止本次流程。")
+            logger.error(_TAG + "：点「自动探索」后没等到「开启探索」面板，停止本次流程。")
             return CustomAction.RunResult(success=False)
 
         # ---- 3. 校验时长 = 可用最大值（只读，不拖滑块）----
         hours = _parse_int(r"(\d+)小时", [text for text, _box in _ocr(context, _DURATION_ROI)])
         tools = _parse_int(r"(\d+)/", [text for text, _box in _ocr(context, _TOOLS_ROI)])
         if hours is None or tools is None:
-            logger.warning("机神降临：认不出时长/侦察工具读数，按面板当前值开启（读不出就不猜）。")
+            logger.warning(_TAG + "：认不出时长/侦察工具读数，按面板当前值开启（读不出就不猜）。")
         else:
             expected = min(_MAX_HOURS, tools // _TOOLS_PER_HOUR)
             if hours == expected:
                 logger.debug(
-                    "机神降临：时长校验通过 {} 小时 = 可用最大值（侦察工具 {}，每 {} 个 1 小时）。",
+                    _TAG + "：时长校验通过 {} 小时 = 可用最大值（侦察工具 {}，每 {} 个 1 小时）。",
                     hours,
                     tools,
                     _TOOLS_PER_HOUR,
                 )
             elif hours < expected:
                 logger.warning(
-                    "机神降临：面板时长 {} 小时 < 可用最大值 {} 小时（默认不再是最大值？），"
+                    _TAG + "：面板时长 {} 小时 < 可用最大值 {} 小时（默认不再是最大值？），"
                     "本次仍按界面当前值开启（不拖滑块）。",
                     hours,
                     expected,
                 )
             else:
                 logger.warning(
-                    "机神降临：面板时长 {} 小时 > 计算出的可用最大值 {} 小时，按界面值开启。",
+                    _TAG + "：面板时长 {} 小时 > 计算出的可用最大值 {} 小时，按界面值开启。",
                     hours,
                     expected,
                 )
@@ -609,9 +956,9 @@ class MachineGodDescentAutoExploreSetup(CustomAction):
         _click_box(context, confirm)
         time.sleep(_CLICK_SETTLE)
         if _wait_for(context, _STOP_RUNNING_ROI, _STOP_RUNNING_TEXT) is None:
-            logger.error("机神降临：点「开启探索」后没看到「停止自动探索」，无法确认已开启。")
+            logger.error(_TAG + "：点「开启探索」后没看到「停止自动探索」，无法确认已开启。")
             return CustomAction.RunResult(success=False)
-        logger.debug("机神降临：自动探索已开启。")
+        logger.debug(_TAG + "：自动探索已开启。")
         return CustomAction.RunResult(success=True)
 
 
@@ -685,13 +1032,13 @@ def _back_to_mgd_page(context: Context, tries: int = 3) -> bool:
         context.tasker.controller.post_click(*_MGD_BACK_POINT).wait()
         time.sleep(_CLICK_SETTLE)
     if _read_element_remaining(context) is not None:
-        logger.warning("机神降临：自律机械段结束后仍停在挑战页（还能读到「挑战次数」），机神降临挑战段可能认不到入口。")
+        logger.warning(_TAG + "：自律机械段结束后仍停在挑战页（还能读到「挑战次数」），机神降临挑战段可能认不到入口。")
         return False
     if not any(
         _find_contains(context, _ELEMENT_ENTRY_ROI, text) is not None for text in _ELEMENT_ENTRY_TEXTS
     ):
         logger.warning(
-            "机神降临：已退出自律机械挑战页，但没看到「元素自律机械」/「大量出现中」入口，"
+            _TAG + "：已退出自律机械挑战页，但没看到「元素自律机械」/「大量出现中」入口，"
             "机神降临挑战段可能认不到入口。"
         )
         return False
@@ -752,7 +1099,7 @@ def _read_element_target(context: Context) -> str:
     try:
         node = context.get_node_data(_ELEMENT_TARGET_NODE) or {}
     except Exception as error:  # noqa: BLE001  读不到按「不挑战」处理，绝不擅自消费次数
-        logger.warning("机神降临：读取元素自律机械目标节点失败：{}", error)
+        logger.warning(_TAG + "：读取元素自律机械目标节点失败：{}", error)
         return ""
     expected = ((node.get("recognition") or {}).get("param") or {}).get("expected") or []
     value = expected[0] if expected else ""
@@ -795,23 +1142,24 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
     """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        set_log_tag("机神降临")
         if not _flag_enabled(context, _ELEMENT_MACHINE_FLAG):
-            logger.info("机神降临：任务设置「挑战元素自律机械」未开启，跳过元素自律机械段。")
+            logger.info(_TAG + "：任务设置「挑战元素自律机械」未开启，跳过元素自律机械段。")
             return CustomAction.RunResult(success=True)
 
         try:
             params = parse_params(argv.custom_action_param)
         except ValueError as error:
-            logger.error("机神降临：custom_action_param 解析失败：{}", error)
+            logger.error(_TAG + "：custom_action_param 解析失败：{}", error)
             return CustomAction.RunResult(success=False)
         times = _parse_times(params.get("times"))
         if times is None:
-            logger.error("机神降临：挑战次数非法（需 1-99999），跳过元素自律机械段。")
+            logger.error(_TAG + "：挑战次数非法（需 1-99999），跳过元素自律机械段。")
             return CustomAction.RunResult(success=True)
         target = _read_element_target(context)
         if target not in ELEMENT_BOSSES:
             logger.debug(
-                "机神降临：任务设置「挑战元素自律机械」没有指定有效 BOSS（target={!r}），跳过本段。",
+                _TAG + "：任务设置「挑战元素自律机械」没有指定有效 BOSS（target={!r}），跳过本段。",
                 target,
             )
             return CustomAction.RunResult(success=True)
@@ -821,23 +1169,23 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
         for text in _ELEMENT_ENTRY_TEXTS:
             entry = _find_contains(context, _ELEMENT_ENTRY_ROI, text)
             if entry is not None:
-                logger.debug("机神降临：点左上角「{}」进入挑战页。", text)
+                logger.debug(_TAG + "：点左上角「{}」进入挑战页。", text)
                 _click_box(context, entry)
                 time.sleep(_CLICK_SETTLE)
                 break
         if entry is None:
-            logger.debug("机神降临：没看到左上角入口（可能已在挑战页）。")
+            logger.debug(_TAG + "：没看到左上角入口（可能已在挑战页）。")
 
         # 2. 按设置次数循环；每轮先把页面推进到目标 BOSS，推不到就整段跳过
         done = 0
         skipped = False
         for index in range(times):
             if is_stopping(context):
-                logger.info("机神降临：收到停止请求，元素自律机械段中断（已完成 {}/{} 次）。", done, times)
+                logger.info(_TAG + "：收到停止请求，元素自律机械段中断（已完成 {}/{} 次）。", done, times)
                 break
             remaining = _read_element_remaining(context)
             if remaining is not None and remaining <= 0:
-                logger.info("机神降临：元素自律机械剩余可挑战次数已用尽（挑战次数：{}），提前结束。", remaining)
+                logger.info(_TAG + "：元素自律机械剩余可挑战次数已用尽（挑战次数：{}），提前结束。", remaining)
                 break
 
             state = _element_sync_target(context, target)
@@ -846,11 +1194,11 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
                 time.sleep(_CLICK_SETTLE)
                 state = _element_sync_target(context, target)
                 if state == "picked":
-                    logger.warning("机神降临：点了「{}」的卡，但没有进入它的详情页。", target)
+                    logger.warning(_TAG + "：点了「{}」的卡，但没有进入它的详情页。", target)
                     state = "skip"
             if state == "skip":
                 logger.debug(
-                    "机神降临：当前挑战页不是「{}」（既没有它，也没有「大量出现」可选），"
+                    _TAG + "：当前挑战页不是「{}」（既没有它，也没有「大量出现」可选），"
                     "按任务设置跳过本段挑战。",
                     target,
                 )
@@ -868,18 +1216,18 @@ class MachineGodDescentElementMachineChallenge(CustomAction):
                 challenge_roi=_ELEMENT_CHALLENGE_ROI,
             ):
                 logger.warning(
-                    "机神降临：第 {} 次挑战没能完成（认不到挑战页锚点「开始战斗」/「挑战次数」或战斗未收尾），"
+                    _TAG + "：第 {} 次挑战没能完成（认不到挑战页锚点「开始战斗」/「挑战次数」或战斗未收尾），"
                     "停止元素自律机械段。",
                     index + 1,
                 )
                 break
             done += 1
-            logger.info("机神降临：元素自律机械「{}」第 {}/{} 次挑战完成。", target, done, times)
+            logger.info(_TAG + "：元素自律机械「{}」第 {}/{} 次挑战完成。", target, done, times)
 
         if skipped:
-            logger.info("机神降临：元素自律机械段结束（0 次，任务设置的目标 BOSS 不在场）。")
+            logger.info(_TAG + "：元素自律机械段结束（0 次，任务设置的目标 BOSS 不在场）。")
         else:
-            logger.info("机神降临：元素自律机械段结束，共完成 {}/{} 次。", done, times)
+            logger.info(_TAG + "：元素自律机械段结束，共完成 {}/{} 次。", done, times)
         # 收回页面：下一段是机神降临挑战（自律机械优先），它要在机神降临页认「挑战」/「挑战机神」入口。
         # 停在自律机械挑战页会让它认不到入口直接放弃，所以这里必须退回机神降临页。
         _back_to_mgd_page(context)
@@ -984,10 +1332,10 @@ def _wait_room_start_after_confirm(context: Context, timeout: float):
 
         if _find_contains(context, _MENU_TITLE_ROI, _MENU_TITLE_TEXT) is not None:
             if menu_closed >= 3:
-                logger.warning("机神降临：菜单页反复弹出（已关 {} 次），停止本次创建房间。", menu_closed)
+                logger.warning(_TAG + "：菜单页反复弹出（已关 {} 次），停止本次创建房间。", menu_closed)
                 return None
             menu_closed += 1
-            logger.warning("机神降临：点编队「确定」后异常弹出菜单页，点左下角返回关闭（第 {} 次）。", menu_closed)
+            logger.warning(_TAG + "：点编队「确定」后异常弹出菜单页，点左下角返回关闭（第 {} 次）。", menu_closed)
             context.tasker.controller.post_click(*_MGD_BACK_POINT).wait()
             time.sleep(_CLICK_SETTLE)
             continue
@@ -997,7 +1345,7 @@ def _wait_room_start_after_confirm(context: Context, timeout: float):
             if confirm is not None:
                 confirm_retried = True
                 logger.warning(
-                    "机神降临：点「确定」{} 秒后仍停在编队页，补点一次「确定」。",
+                    _TAG + "：点「确定」{} 秒后仍停在编队页，补点一次「确定」。",
                     _GOD_CONFIRM_RETRY_AFTER,
                 )
                 _click_box(context, confirm)
@@ -1028,7 +1376,7 @@ def handle_away_full(context: Context) -> bool:
     if _find_in(context, _AWAY_FULL_ROI, _AWAY_FULL_TEXT) is None:
         return False
     logger.warning(
-        "机神降临：检测到「暂离已满」弹窗，本次挑战没有真正开始；"
+        _TAG + "：检测到「暂离已满」弹窗，本次挑战没有真正开始；"
         "转异常处理流程（前往战斗列表 → 待确认 → 领取报酬 → 回主页）。"
     )
     context.run_task("Exception_AwayFull")
@@ -1048,7 +1396,7 @@ def _create_god_room(context: Context) -> bool:
     # 1. 机神挑战页 → 创建房间
     create = _wait_for(context, _GOD_CREATE_ROOM_ROI, _GOD_CREATE_ROOM_TEXT, 15)
     if create is None:
-        logger.warning("机神降临：没等到机神挑战页「创建房间」。")
+        logger.warning(_TAG + "：没等到机神挑战页「创建房间」。")
         return False
     _click_box(context, create)
     time.sleep(_CLICK_SETTLE)
@@ -1062,18 +1410,18 @@ def _create_god_room(context: Context) -> bool:
         context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT, 15
     )
     if state is None:
-        logger.warning("机神降临：点「创建房间」后既没进助战选择页，也没等到编队页「确定」。")
+        logger.warning(_TAG + "：点「创建房间」后既没进助战选择页，也没等到编队页「确定」。")
         return False
     if state == "support":
         if not _ensure_support(context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT):
-            logger.warning("机神降临：助战选择没有完成（未进入编队页），放弃本次创建房间。")
+            logger.warning(_TAG + "：助战选择没有完成（未进入编队页），放弃本次创建房间。")
             return False
         time.sleep(_CLICK_SETTLE)
 
     # 3. 编队页 → 确定
     confirm = _wait_for(context, _GOD_FORMATION_CONFIRM_ROI, _GOD_FORMATION_CONFIRM_TEXT, 15)
     if confirm is None:
-        logger.warning("机神降临：没等到编队页「确定」。")
+        logger.warning(_TAG + "：没等到编队页「确定」。")
         return False
     _click_box(context, confirm)
     time.sleep(_CLICK_SETTLE)
@@ -1087,7 +1435,7 @@ def _create_god_room(context: Context) -> bool:
     start = _wait_room_start_after_confirm(context, _GOD_FORMATION_TO_ROOM_TIMEOUT)
     if start is None:
         logger.error(
-            "机神降临：点编队「确定」后 {} 秒内没进到房间页「开始战斗」，进入公共异常处理流程。",
+            _TAG + "：点编队「确定」后 {} 秒内没进到房间页「开始战斗」，进入公共异常处理流程。",
             _GOD_FORMATION_TO_ROOM_TIMEOUT,
         )
         context.run_task("Exception_Start")
@@ -1124,10 +1472,10 @@ def _run_god_battle(context: Context) -> str:
         if entry is None:
             entry = _find_contains(context, _GOD_BANNER_ROI, _GOD_BANNER_TEXT)
     if entry is None:
-        logger.warning("机神降临：认不到机神挑战入口（挑战/挑战机神/机神降临横幅）。")
+        logger.warning(_TAG + "：认不到机神挑战入口（挑战/挑战机神/机神降临横幅）。")
         return "fail"
     logger.debug(
-        "机神降临：点机神挑战入口「{}」({} 路径)。",
+        _TAG + "：点机神挑战入口「{}」({} 路径)。",
         entry_kind,
         "直接进" if entry_kind == "direct" else "邀请框",
     )
@@ -1138,11 +1486,11 @@ def _run_god_battle(context: Context) -> str:
     if entry_kind == "dialog":
         go = _wait_for(context, _GOD_GO_ROI, _GOD_GO_TEXT, 10)
         if go is None:
-            logger.warning("机神降临：点入口后没等到机神挑战邀请框「前往」。")
+            logger.warning(_TAG + "：点入口后没等到机神挑战邀请框「前往」。")
             return "fail"
         remaining = _read_god_remaining(context)
         if remaining is not None and remaining <= 0:
-            logger.info("机神降临：机神挑战剩余次数已用尽（剩余挑战次数：{}），关邀请框。", remaining)
+            logger.info(_TAG + "：机神挑战剩余次数已用尽（剩余挑战次数：{}），关邀请框。", remaining)
             _dismiss_machine_god_dialog(context)
             return "exhausted"
         _click_box(context, go)
@@ -1153,21 +1501,25 @@ def _run_god_battle(context: Context) -> str:
         return "fail"
 
     # 7. 战斗：接入战斗模块推进回合（只点「跳过回合」，受全局「跳过回合」开关控制；机神 HP 归零即胜利）
-    def _god_battle_over() -> bool:
-        # 胜利/失败结算都以底部按钮或失败标题出现为准
+    def _god_battle_over(index=None) -> bool:
+        # 胜利/失败结算都以底部按钮或失败标题出现为准（正常情况下直接复用战斗循环那一帧）
+        if index is None:
+            index = frame_index(context, _RESULT_BAND_ROI, _MGD_BOTTOM_ROI, _GOD_LOSE_RESULT_ROI)
         return (
-            _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONTINUE_TEXT) is not None
-            or _find_in(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT) is not None
-            or _find_in(context, _GOD_LOSE_RESULT_ROI, _GOD_LOSE_TEXT) is not None
+            pick_exact(index, _WIN_CONTINUE_TEXT) is not None
+            or pick_exact(index, _WIN_CONFIRM_TEXT) is not None
+            or pick_exact(index, _GOD_LOSE_TEXT) is not None
         )
 
-    if not _run_battle_turns(context, _god_battle_over, _GOD_BATTLE_TIMEOUT):
-        logger.warning("机神降临：战斗推进超过 {} 秒仍未结束，放弃本场。", _GOD_BATTLE_TIMEOUT)
+    if not _run_battle_turns(
+        context, _god_battle_over, _GOD_BATTLE_TIMEOUT, extra_rois=(_GOD_LOSE_RESULT_ROI,)
+    ):
+        logger.warning(_TAG + "：战斗推进超过 {} 秒仍未结束，放弃本场。", _GOD_BATTLE_TIMEOUT)
         return "fail"
 
     # 7.5 失败结算（时间到/全员阵亡）：点底部「撤退」退出
     if _find_in(context, _GOD_LOSE_RESULT_ROI, _GOD_LOSE_TEXT) is not None:
-        logger.warning("机神降临：机神战「作战失败」（时间到/全员阵亡），点底部「撤退」退出。")
+        logger.warning(_TAG + "：机神战「作战失败」（时间到/全员阵亡），点底部「撤退」退出。")
         exit_box = _find_in(context, _MGD_BOTTOM_ROI, "撤退")
         if exit_box is not None:
             _click_box(context, exit_box)
@@ -1183,20 +1535,20 @@ def _run_god_battle(context: Context) -> str:
         time.sleep(_CLICK_SETTLE)
     confirm_box = _wait_for(context, _MGD_BOTTOM_ROI, _WIN_CONFIRM_TEXT, 10)
     if confirm_box is None:
-        logger.warning("机神降临：胜利结算后没等到「确认」按钮。")
+        logger.warning(_TAG + "：胜利结算后没等到「确认」按钮。")
         return "fail"
     _click_box(context, confirm_box)
     time.sleep(_CLICK_SETTLE)
 
     # 9. 好友申请弹窗（用了陌生助战会弹）→ 取消；绝不给别的玩家发申请
     if _wait_for(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT, 3) is not None:
-        logger.debug("机神降临：结算后弹出好友申请框，点「取消」。")
+        logger.debug(_TAG + "：结算后弹出好友申请框，点「取消」。")
         _click_box(context, _find_in(context, _FRIEND_CANCEL_ROI, _FRIEND_CANCEL_TEXT))
         time.sleep(_CLICK_SETTLE)
 
     # 10. 后置观测：回到黄金之国页（「挑战」重新出现）
     if _wait_for(context, _GOD_FIGHT_ROI, _GOD_FIGHT_TEXT, 10) is None:
-        logger.warning("机神降临：机神战结算后没回到黄金之国页（认不到「挑战」）。")
+        logger.warning(_TAG + "：机神战结算后没回到黄金之国页（认不到「挑战」）。")
         return "fail"
     return "done"
 
@@ -1230,34 +1582,35 @@ class MachineGodDescentGodChallenge(CustomAction):
     """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        set_log_tag("机神降临")
         if not _flag_enabled(context, _GOD_CHALLENGE_FLAG):
-            logger.info("机神降临：任务设置「挑战机神降临」未开启，跳过机神降临挑战段。")
+            logger.info(_TAG + "：任务设置「挑战机神降临」未开启，跳过机神降临挑战段。")
             return CustomAction.RunResult(success=True)
 
         try:
             params = parse_params(argv.custom_action_param)
         except ValueError as error:
-            logger.error("机神降临：custom_action_param 解析失败：{}", error)
+            logger.error(_TAG + "：custom_action_param 解析失败：{}", error)
             return CustomAction.RunResult(success=False)
         times = _parse_times(params.get("times"))
         if times is None:
-            logger.error("机神降临：机神挑战次数非法（需 1-99999），跳过机神降临挑战段。")
+            logger.error(_TAG + "：机神挑战次数非法（需 1-99999），跳过机神降临挑战段。")
             return CustomAction.RunResult(success=True)
 
         done = 0
         for index in range(times):
             if is_stopping(context):
-                logger.info("机神降临：收到停止请求，机神降临挑战段中断（已完成 {}/{} 次）。", done, times)
+                logger.info(_TAG + "：收到停止请求，机神降临挑战段中断（已完成 {}/{} 次）。", done, times)
                 break
             outcome = _run_god_battle(context)
             if outcome == "exhausted":
-                logger.info("机神降临：机神挑战剩余次数已用尽，机神降临挑战段提前结束。")
+                logger.info(_TAG + "：机神挑战剩余次数已用尽，机神降临挑战段提前结束。")
                 break
             if outcome != "done":
-                logger.warning("机神降临：第 {} 次机神挑战没能完成，停止机神降临挑战段。", index + 1)
+                logger.warning(_TAG + "：第 {} 次机神挑战没能完成，停止机神降临挑战段。", index + 1)
                 break
             done += 1
-            logger.info("机神降临：机神降临挑战第 {}/{} 次完成。", done, times)
+            logger.info(_TAG + "：机神降临挑战第 {}/{} 次完成。", done, times)
 
-        logger.info("机神降临：机神降临挑战段结束，共完成 {}/{} 次。", done, times)
+        logger.info(_TAG + "：机神降临挑战段结束，共完成 {}/{} 次。", done, times)
         return CustomAction.RunResult(success=True)

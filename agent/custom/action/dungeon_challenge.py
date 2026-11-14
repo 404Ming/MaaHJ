@@ -62,6 +62,7 @@ from .machine_god_descent import (
     _find_in,
     _wait_for,
     handle_away_full,
+    set_log_tag,
 )
 
 # ---- 任务设置载体节点（interface.json 的选项覆写它们）--------------------------------
@@ -70,9 +71,9 @@ _TARGET_DUNGEON_NODE = "DungeonChallenge_TargetDungeon"
 _TARGET_DIFFICULTY_NODE = "DungeonChallenge_TargetDifficulty"
 _CREATE_ROOM_FLAG = "DungeonChallenge_Flag_CreateRoom"
 
-# 「次数」取值范围（用户要求：默认 0，最大 9999）
+# 「次数」取值范围（用户要求：默认 0，最大 99999）
 MIN_TIMES = 0
-MAX_TIMES = 9999
+MAX_TIMES = 99999
 
 # 选项「无」写入的哨兵值：与任何真实文案都不重合，Python 据此判定"用户没选"。
 UNSELECTED = "__.未选择__"
@@ -280,7 +281,7 @@ _SCROLL_SETTLE = 1.2
 
 
 def _parse_times(raw: object, *, allow_zero: bool) -> int | None:
-    """把「次数」解析为 0-9999（allow_zero）或 1-9999 的整数；非法返回 None。"""
+    """把「次数」解析为 0-99999（allow_zero）或 1-99999 的整数；非法返回 None。"""
     if isinstance(raw, bool):
         return None
     if isinstance(raw, int):
@@ -833,13 +834,28 @@ def _scan_difficulty_tabs(context: Context) -> list[tuple[str, Any]]:
     return tabs
 
 
+# 武器副本的难度页签是「名字」而不是「难度N」：任务设置里填 1/2/3 时按名字点，
+# 不能套「难度N」的栅格（2 档页面 困难/噩梦 会把第 2 行误当成「难度2」）。
+_NAMED_TAB_BY_INDEX: dict[int, tuple[str, ...]] = {
+    1: ("简单", "普通"),
+    2: ("困难",),
+    3: ("噩梦",),
+}
+
+
+def _has_only_named_tabs(tabs: list[tuple[str, Any]]) -> bool:
+    """页签是否全为 简单/困难/噩梦 这类名字（而不是「难度N」）。"""
+    return bool(tabs) and all(re.fullmatch(r"难度\d+", text) is None for text, _ in tabs)
+
+
 def _select_difficulty(context: Context, expected: list[str]) -> bool:
     """选难度；**没有难度页签的单难度副本**直接跳过，交给「创建房间」。
 
     判定顺序（同时也是「适配后续版本加难度」的关键——每次都按当前画面重新判，不写死系列名）：
       1. 页签里认到目标文案 → 点它 + 校验高亮（正常路径；将来这些系列加了难度，会自动走回这里）；
-      2. 页签列里**一个难度页签都没有** → 该副本当前只有一个难度，跳过选择直接去创建房间；
-      3. 有页签但认不到目标文案 → 只有「难度N」页签才允许退回栅格，其余放弃（宁可不打，也不打错难度）。
+      2. 名字页签（简单/困难/噩梦）且档位 1/2/3 → 按名字点对应页签；
+      3. 页签列里**一个难度页签都没有** → 该副本当前只有一个难度，跳过选择直接去创建房间；
+      4. 有页签但认不到目标文案 → 只有「难度N」页签才允许退回栅格，其余放弃（宁可不打，也不打错难度）。
     """
     regex = _tab_regex(expected)
     index = _tab_index(expected)
@@ -851,6 +867,14 @@ def _select_difficulty(context: Context, expected: list[str]) -> bool:
             if regex.fullmatch(text):
                 box = found
                 matched_text = text
+                break
+    if box is None and index is not None and _has_only_named_tabs(tabs):
+        names = _NAMED_TAB_BY_INDEX.get(index, ())
+        for text, found in tabs:
+            if text in names:
+                box = found
+                matched_text = text
+                logger.debug("副本挑战：难度 {} 对应名字页签「{}」。", index, text)
                 break
     if box is not None:
         click_x = _box_center_x(box)
@@ -866,7 +890,12 @@ def _select_difficulty(context: Context, expected: list[str]) -> bool:
             expected,
         )
         return True
-    elif index is not None and _grid_row_is_trustworthy(expected):
+    elif (
+        index is not None
+        and index > 0
+        and _grid_row_is_trustworthy(expected)
+        and not _has_only_named_tabs(tabs)
+    ):
         click_x = _DIFFICULTY_TAB_X
         click_y = _DIFFICULTY_TAB_Y0 + _DIFFICULTY_TAB_STEP * (index - 1)
         logger.warning(
@@ -1536,6 +1565,7 @@ class DungeonChallengeChallenge(CustomAction):
     """
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        set_log_tag("副本挑战")
         try:
             params = parse_params(argv.custom_action_param)
         except ValueError as error:
@@ -1567,8 +1597,8 @@ class DungeonChallengeChallenge(CustomAction):
         if series in ("", UNSELECTED):
             logger.error("副本挑战：读不到「挑战副本」所属系列（节点 {}），本次不做任何挑战。", _TARGET_SERIES_NODE)
             return CustomAction.RunResult(success=True)
-        if difficulty_text in ("", UNSELECTED):
-            logger.info("副本挑战：任务设置「难度」还没选择（默认无），本次不做任何挑战。")
+        if difficulty_text in ("", UNSELECTED, "难度0", "0"):
+            logger.info("副本挑战：任务设置「难度」为 0（不挑战），本次不做任何挑战。")
             return CustomAction.RunResult(success=True)
         if not create_room:
             logger.info("副本挑战：任务设置「挑战方式」为「加入房间」，该流程尚未实现，本次不做任何挑战。")

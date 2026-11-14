@@ -1,7 +1,7 @@
 {
     "GameplayChallenge_Start": {
         // 入口：按 interface.json「挑战次数」打到目标次数，循环体是 GameplayChallenge_Once。
-        // custom_action_param.times 由「挑战次数」选项覆写：1-99999，默认 1 次。
+        // custom_action_param.times 由「挑战次数」选项覆写：0-99999，默认 1 次（0 = 不挑战）。
         // 每次挑战都会真实消耗体力。一次循环体没开始新战斗（多为体力不足已转「补充体力」）会重试，
         // 连续 3 次都没有新战斗开始（GameplayChallengeLoop 里的 MAX_STUCK_ATTEMPTS）才停止，不再继续消耗。
         // 副本结算页支持「挑战下一关」时，一次循环体会连着打多局快速再战，
